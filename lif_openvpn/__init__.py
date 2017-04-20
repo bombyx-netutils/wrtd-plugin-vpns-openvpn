@@ -25,22 +25,21 @@ def get_plugin(name):
 
 class _PluginObject:
 
-    def init2(self, instanceName, cfg, brname, tmpDir):
+    def init2(self, instanceName, cfg, tmpDir):
         assert instanceName == ""
         self.cfg = cfg
-        self.brname = brname
         self.tmpDir = tmpDir
         self.apiPort = None                         # fixme
         self.proto = self.cfg.get("proto", "udp")
         self.port = self.cfg.get("port", 1194)
 
-        self.n2nSupernodeProc = None
+        self.serverFile = os.path.join(self.tmpDir, "cmd.socket")
         self.proc = None
         self.bridge = None
 
     def start(self):
         self._runOpenvpnServer()
-        self.bridge = _VirtualBridge()
+        self.bridge = _VirtualBridge(self.tmpDir)
 
     def stop(self):
         if self.proc is not None:
@@ -53,7 +52,6 @@ class _PluginObject:
 
     def interface_appear(self, ifname):
         if ifname == "wrt-lif-ovpn":
-            _Util.addInterfaceToBridge(self.brname, ifname)
             return True
         else:
             return False
@@ -138,29 +136,38 @@ class _PluginObject:
 
 class _VirtualBridge:
 
-    def __init__(self, tmpDir, l2DnsPort, clientAppearFunc, clientChangeFunc, clientDisappearFunc):
+    def __init__(self, tmpDir):
         self.tmpDir = tmpDir
-        self.l2DnsPort = l2DnsPort
-        self.clientAppearFunc = clientAppearFunc
-        self.clientChangeFunc = clientChangeFunc
-        self.clientDisappearFunc = clientDisappearFunc
+        self.l2DnsPort = None
+        self.clientAppearFunc = None
+        self.clientChangeFunc = None
+        self.clientDisappearFunc = None
 
         self.brname = "wrt-lif-ovpn"
         self.ip = "192.168.2.1"
         self.mask = "255.255.255.0"
         self.dhcpRange = ("192.168.2.2", "192.168.2.50")
 
+        self.serverFile = os.path.join(self.tmpDir, "cmd.socket")
+        self.cmdSock = None
+        self.cmdServerThread = None
+
         self.myhostnameFile = os.path.join(self.tmpDir, "dnsmasq.myhostname")
+        self.selfHostFile = os.path.join(self.tmpDir, "dnsmasq.self")
         self.hostsDir = os.path.join(self.tmpDir, "hosts.d")
-        self.leasesFile = os.path.join(self.tmpDir, "dnsmasq.leases")
         self.pidFile = os.path.join(self.tmpDir, "dnsmasq.pid")
         self.dnsmasqProc = None
 
-    def start(self):
-        # start dnsmasq
+    def init2(self, l2DnsPort, clientAppearFunc, clientChangeFunc, clientDisappearFunc)
+        self.l2DnsPort = l2DnsPort
+        self.clientAppearFunc = clientAppearFunc
+        self.clientChangeFunc = clientChangeFunc
+        self.clientDisappearFunc = clientDisappearFunc
         self._runDnsmasq()
+        self._runCmdServer()
 
-    def stop(self):
+    def dispose(self):
+        self._stopCmdServer()
         self._stopDnsmasq()
 
     def get_bridge_id(self):
@@ -170,7 +177,7 @@ class _VirtualBridge:
         return self.ip
 
     def get_netmask(self):
-        return self.mask
+        return self.mask_VirtualBridge
 
     def get_subhost_ip_range(self):
         # return (start_ip, ip_number, count)
@@ -247,10 +254,30 @@ class _VirtualBridge:
                 f.write(buf2)
             self.dnsmasqProc.send_signal(signal.SIGHUP)
 
+    def _runCmdServer(self):
+        self.cmdSock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+        self.cmdSock.bind(self.serverFile)
+
+        self.cmdServerThread = _CmdServerThread(self)
+        self.cmdServerThread.start()
+
+    def _stopCmdServer(self):
+        if self.cmdServerThread is not None:
+            self.cmdSock.close()
+            self.cmdServerThread.join()
+            self.cmdServerThread = None
+        else:
+            if self.cmdSock is not None:
+                self.cmdSock.close()
+
     def _runDnsmasq(self):
         # myhostname file
         with open(self.myhostnameFile, "w") as f:
             f.write("%s %s\n" % (self.ip, socket.gethostname()))
+
+        # self host file
+        with open(self.selfHostFile, "w") as f:
+            f.write("")
 
         # make hosts directory
         os.mkdir(self.hostsDir)
@@ -269,6 +296,7 @@ class _VirtualBridge:
         buf += "server=127.0.0.1#%d\n" % (self.l2DnsPort)
         buf += "addn-hosts=%s\n" % (self.hostsDir)                       # "hostsdir=" only adds record, no deletion, so not usable
         buf += "addn-hosts=%s\n" % (self.myhostnameFile)                 # we use addn-hosts which has no inotify, and we send SIGHUP to dnsmasq when host file changes
+        buf += "addn-hosts=%s\n" % (self.selfHostFile)
         buf += "\n"
         cfgf = os.path.join(self.tmpDir, "dnsmasq.conf")
         with open(cfgf, "w") as f:
@@ -291,22 +319,80 @@ class _VirtualBridge:
             self.dnsmasqProc.wait()
             self.dnsmasqProc = None
         os.unlink(self.pidFile)
-        os.unlink(self.leasesFile)
         shutil.rmtree(self.hostsDir)
+        os.unlink(self.selfHostFile)
         os.unlink(self.myhostnameFile)
+
+
+class _CmdServerThread(threading.Thread):
+
+    def __init__(self, pObj):
+        threading.Thread.__init__(self)
+        self.pObj = pObj
+
+    def run(self):
+        while True:
+            jsonObj = None
+            try:
+                buf = self.pObj.cmdSock.recvfrom(4096).decode("utf-8")
+                jsonObj = json.loads(buf)
+            except socket.error:
+                break
+
+            if jsonObj["cmd"] == "add":
+                # add to dnsmasq host file
+                if "hostname" in jsonObj:
+                    _Util.addToDnsmasqHostFile(self.pObj.selfHostFile, jsonObj["ip"], jsonObj["hostname"])
+                    self.pObj.dnsmasqProc.send_signal(signal.SIGHUP)
+                # notify lan manager
+                data = dict()
+                data[jsonObj["ip"]] = dict()
+                if "hostname" in jsonObj:
+                    data[jsonObj["ip"]]["hostname"] = jsonObj["hostname"]
+                _Util.idleInvoke(self.pObj.clientAppearFunc, self.pObj.get_bridge_id(), data)
+            elif jsonObj["cmd"] == "del":
+                # remove from dnsmasq host file
+                if _Util.removeFromDnsmasqHostFile(self.pObj.selfHostFile, jsonObj["ip"]):
+                    self.pObj.dnsmasqProc.send_signal(signal.SIGHUP)
+                # notify lan manager
+                data = [jsonObj["ip"]]
+                _Util.idleInvoke(self.pObj.clientDisappearFunc, self.pObj.get_bridge_id(), data)
+            else:
+                assert False
 
 
 class _Util:
 
     @staticmethod
-    def addInterfaceToBridge(brname, ifname):
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        try:
-            ifreq = struct.pack("16si", ifname, 0)
-            ret = fcntl.ioctl(s.fileno(), 0x8933, ifreq)            # SIOCGIFINDEX
-            ifindex = struct.unpack("16si", ret)[1]
+    def addToDnsmasqHostFile(filename, ip, hostname):
+        assert hostname != ""
+        with open(filename, "a") as f:
+            f.write(ip + " " + hostname + "\n")
 
-            ifreq = struct.pack("16si", brname, ifindex)
-            fcntl.ioctl(s.fileno(), 0x89a2, ifreq)                  # SIOCBRADDIF
-        finally:
-            s.close()
+    @staticmethod
+    def removeFromDnsmasqHostFile(filename, ip):
+        bChanged = False
+
+        lineList = []
+        with open(filename, "r") as f:
+            lineList = f.read().rstrip("\n").split("\n")
+
+        lineList2 = []
+        for line in lineList:
+            if ip != line.split(" ")[0]:
+                lineList2.append(line)
+            else:
+                bChanged = True
+
+        if bChanged:
+            with open(filename, "w") as f:
+                for line in lineList2:
+                    f.write(line + "\n")
+        return bChanged
+
+    @staticmethod
+    def idleInvoke(func, *args):
+        def _idleCallback(func, *args):
+            func(*args)
+            return False
+        GLib.idle_add(_idleCallback, func, *args)
