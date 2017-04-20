@@ -2,11 +2,7 @@
 # -*- coding: utf-8; tab-width: 4; indent-tabs-mode: t -*-
 
 import os
-import pwd
-import grp
 import socket
-import struct
-import fcntl
 import subprocess
 
 
@@ -29,9 +25,13 @@ class _PluginObject:
         assert instanceName == ""
         self.cfg = cfg
         self.tmpDir = tmpDir
-        self.apiPort = None                         # fixme
+
         self.proto = self.cfg.get("proto", "udp")
         self.port = self.cfg.get("port", 1194)
+
+        self.intfName = "wrt-lif-ovpn"
+        self.intfIp = None                  # fixme
+
 
         self.serverFile = os.path.join(self.tmpDir, "cmd.socket")
         self.proc = None
@@ -50,7 +50,7 @@ class _PluginObject:
     def get_bridge(self):
         return self.bridge
 
-    def interface_appear(self, ifname):
+    def interface_appear(self, bridge, ifname):
         if ifname == "wrt-lif-ovpn":
             return True
         else:
@@ -70,8 +70,8 @@ class _PluginObject:
         with open(cfgf, "w") as f:
             f.write("tmp-dir %s\n" % (self.tmpDir))
 
-            f.write("proto %s\n" % (self.proto)
-            f.write("port %s\n" % (self.port)
+            f.write("proto %s\n" % (self.proto))
+            f.write("port %s\n" % (self.port))
             f.write("\n")
 
             f.write("dev-type tap\n")
@@ -79,7 +79,7 @@ class _PluginObject:
             f.write("keepalive 10 120\n")
             f.write("\n")
 
-            f.write("local %s\n" % (FcsUtil.getInterfaceIp(self.oif)))
+            f.write("local %s\n" % ())
             f.write("server 10.8.%d.0 %s\n" % (i, self.netmask))
             f.write("topology subnet\n")
             f.write("client-to-client\n")
@@ -92,8 +92,8 @@ class _PluginObject:
 
             f.write("script-security 2\n")
             f.write("auth-user-pass-verify \"%s/openvpn-script-auth.sh\" via-env\n" % (selfdir))
-            f.write("client-connect \"%s/openvpn-script-client.py %s %d\"\n" % (selfdir, self.tmpDir, self.apiPort))
-            f.write("client-disconnect \"%s/openvpn-script-client.py %s %d\"\n" % (selfdir, self.tmpDir, self.apiPort))
+            f.write("client-connect \"%s/openvpn-script-client.py %s\"\n" % (selfdir, self.serverFile))
+            f.write("client-disconnect \"%s/openvpn-script-client.py %s\"\n" % (selfdir, self.serverFile))
             f.write("\n")
 
             f.write("push \"redirect-gateway\"\n")
@@ -156,9 +156,9 @@ class _VirtualBridge:
         self.selfHostFile = os.path.join(self.tmpDir, "dnsmasq.self")
         self.hostsDir = os.path.join(self.tmpDir, "hosts.d")
         self.pidFile = os.path.join(self.tmpDir, "dnsmasq.pid")
-        self.dnsmasqProc = None
+        self.dnsmasqProc = NoneserverFile
 
-    def init2(self, l2DnsPort, clientAppearFunc, clientChangeFunc, clientDisappearFunc)
+    def init2(self, l2DnsPort, clientAppearFunc, clientChangeFunc, clientDisappearFunc):
         self.l2DnsPort = l2DnsPort
         self.clientAppearFunc = clientAppearFunc
         self.clientChangeFunc = clientChangeFunc
@@ -341,19 +341,17 @@ class _CmdServerThread(threading.Thread):
 
             if jsonObj["cmd"] == "add":
                 # add to dnsmasq host file
-                if "hostname" in jsonObj:
-                    _Util.addToDnsmasqHostFile(self.pObj.selfHostFile, jsonObj["ip"], jsonObj["hostname"])
-                    self.pObj.dnsmasqProc.send_signal(signal.SIGHUP)
+                _Util.addToDnsmasqHostFile(self.pObj.selfHostFile, jsonObj["ip"], jsonObj["hostname"])
+                self.pObj.dnsmasqProc.send_signal(signal.SIGHUP)
                 # notify lan manager
                 data = dict()
                 data[jsonObj["ip"]] = dict()
-                if "hostname" in jsonObj:
-                    data[jsonObj["ip"]]["hostname"] = jsonObj["hostname"]
+                data[jsonObj["ip"]]["hostname"] = jsonObj["hostname"]
                 _Util.idleInvoke(self.pObj.clientAppearFunc, self.pObj.get_bridge_id(), data)
             elif jsonObj["cmd"] == "del":
                 # remove from dnsmasq host file
-                if _Util.removeFromDnsmasqHostFile(self.pObj.selfHostFile, jsonObj["ip"]):
-                    self.pObj.dnsmasqProc.send_signal(signal.SIGHUP)
+                _Util.removeFromDnsmasqHostFile(self.pObj.selfHostFile, jsonObj["ip"])
+                self.pObj.dnsmasqProc.send_signal(signal.SIGHUP)
                 # notify lan manager
                 data = [jsonObj["ip"]]
                 _Util.idleInvoke(self.pObj.clientDisappearFunc, self.pObj.get_bridge_id(), data)
@@ -365,14 +363,11 @@ class _Util:
 
     @staticmethod
     def addToDnsmasqHostFile(filename, ip, hostname):
-        assert hostname != ""
         with open(filename, "a") as f:
             f.write(ip + " " + hostname + "\n")
 
     @staticmethod
     def removeFromDnsmasqHostFile(filename, ip):
-        bChanged = False
-
         lineList = []
         with open(filename, "r") as f:
             lineList = f.read().rstrip("\n").split("\n")
@@ -381,14 +376,10 @@ class _Util:
         for line in lineList:
             if ip != line.split(" ")[0]:
                 lineList2.append(line)
-            else:
-                bChanged = True
 
-        if bChanged:
-            with open(filename, "w") as f:
-                for line in lineList2:
-                    f.write(line + "\n")
-        return bChanged
+        with open(filename, "w") as f:
+            for line in lineList2:
+                f.write(line + "\n")
 
     @staticmethod
     def idleInvoke(func, *args):

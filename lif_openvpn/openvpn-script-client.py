@@ -1,19 +1,23 @@
 #!/usr/bin/python3
 
 import os
-import re
 import sys
+import json
+import socket
 
 
-tmpDir = sys.argv[1]
-apiPort = int(sys.argv[2])
-scriptType = os.environ['script_type']
-ip = os.environ['ifconfig_pool_remote_ip']
-hostname = os.environ['username']
+serverFile = sys.argv[1]
 
-if scriptType == "client-connect":
-    FcsCommon.externalAddClient(apiPort, ip, hostname, False)
-elif scriptType == "client-disconnect":
-    FcsCommon.externalRemoveClient(apiPort, ip, False)
+data = dict()
+if os.environ['script_type'] == "client-connect":
+    data["cmd"] = "add"
+elif os.environ['script_type'] == "client-disconnect":
+    data["cmd"] = "del"
 else:
     assert False
+data["ip"] = os.environ['ifconfig_pool_remote_ip']
+data["hostname"] = os.environ['username']
+
+sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+sock.sendto(serverFile, json.dumps(jsonObj))
+sock.close()
