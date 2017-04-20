@@ -2,8 +2,16 @@
 # -*- coding: utf-8; tab-width: 4; indent-tabs-mode: t -*-
 
 import os
+import json
 import socket
+import random
+import signal
+import shutil
+import ipaddress
+import threading
 import subprocess
+from OpenSSL import crypto
+from gi.repository import GLib
 
 
 def get_plugin_list():
@@ -21,25 +29,63 @@ def get_plugin(name):
 
 class _PluginObject:
 
-    def init2(self, instanceName, cfg, tmpDir):
+    def init2(self, instanceName, cfg, tmpDir, varDir):
         assert instanceName == ""
         self.cfg = cfg
         self.tmpDir = tmpDir
+        self.varDir = varDir
 
+        self.prefix = self.cfg.get("prefix")
         self.proto = self.cfg.get("proto", "udp")
         self.port = self.cfg.get("port", 1194)
 
         self.intfName = "wrt-lif-ovpn"
-        self.intfIp = None                  # fixme
+        self.intfIp = (ipaddress.IPv4Address(self.prefix) + 1)
+        self.netmask = "255.255.255.0"
+        self.dhcpStart = str(ipaddress.IPv4Address(self.param.prefix) + 2)
+        self.dhcpEnd = str(ipaddress.IPv4Address(self.param.prefix) + 50)
 
+        self.subhostIpRange = []
+        i = 51
+        while i + 49 < 255:
+            s = str(ipaddress.IPv4Address(self.param.prefix) + i)
+            e = str(ipaddress.IPv4Address(self.param.prefix) + i + 49)
+            self.subhostIpRange.append((s, e))
+            i += 50
+
+        self.clientCertCn = "wrtd-openvpn"
+        self.keySize = 1024
+        self.caCertFile = os.path.join(self.varDir, "ca-cert.pem")
+        self.caKeyFile = os.path.join(self.varDir, "ca-privkey.pem")
+        self.servCertFile = os.path.join(self.varDir, "server-cert.pem")
+        self.servKeyFile = os.path.join(self.varDir, "server-privkey.pem")
+        self.servDhFile = os.path.join(self.varDir, "dh.pem")
 
         self.serverFile = os.path.join(self.tmpDir, "cmd.socket")
         self.proc = None
         self.bridge = None
 
     def start(self):
+        if not os.path.exists(self.varDir):
+            os.makedirs(self.varDir)
+
+        if not os.path.exists(self.caCertFile) or not os.path.exists(self.caKeyFile):
+            caCert, caKey = _Util.genSelfSignedCertAndKey("wrtd-openvpn-ca", self.keySize)
+            _Util.dumpCertAndKey(caCert, caKey, self.caCertFile, self.caKeyFile)
+            if os.path.exists(self.servCertFile):
+                os.unlink(self.servCertFile)
+            if os.path.exists(self.servKeyFile):
+                os.unlink(self.servKeyFile)
+            if os.path.exists(self.servDhFile):
+                os.unlink(self.servDhFile)
+
+        if not os.path.exists(self.servCertFile) or not os.path.exists(self.servKeyFile) or not os.path.exists(self.servDhFile):
+            cert, k = _Util.genCertAndKey(caCert, caKey, "wrtd-openvpn", self.keySize)
+            _Util.dumpCertAndKey(cert, k, self.servCertFile, self.servKeyFile)
+            _Util.genDh(self.keySize, self.servDhFile)
+
         self._runOpenvpnServer()
-        self.bridge = _VirtualBridge(self.tmpDir)
+        self.bridge = _VirtualBridge(self.tmpDir, self.intfName, self.netmask, self.subhostIpRange)
 
     def stop(self):
         if self.proc is not None:
@@ -51,7 +97,7 @@ class _PluginObject:
         return self.bridge
 
     def interface_appear(self, bridge, ifname):
-        if ifname == "wrt-lif-ovpn":
+        if ifname == self.intfName:
             return True
         else:
             return False
@@ -75,12 +121,11 @@ class _PluginObject:
             f.write("\n")
 
             f.write("dev-type tap\n")
-            f.write("dev wrt-lif-ovpn\n")
+            f.write("dev %s\n" % (self.intfName))
             f.write("keepalive 10 120\n")
             f.write("\n")
 
-            f.write("local %s\n" % ())
-            f.write("server 10.8.%d.0 %s\n" % (i, self.netmask))
+            f.write("server-bridge %s %s %s %s\n" % (self.intfIp, self.netmask, self.dhcpStart, self.dhcpEnd))
             f.write("topology subnet\n")
             f.write("client-to-client\n")
             f.write("\n")
@@ -136,17 +181,17 @@ class _PluginObject:
 
 class _VirtualBridge:
 
-    def __init__(self, tmpDir):
+    def __init__(self, tmpDir, brname, ip, mask, subHostIpRange):
         self.tmpDir = tmpDir
         self.l2DnsPort = None
         self.clientAppearFunc = None
         self.clientChangeFunc = None
         self.clientDisappearFunc = None
 
-        self.brname = "wrt-lif-ovpn"
-        self.ip = "192.168.2.1"
-        self.mask = "255.255.255.0"
-        self.dhcpRange = ("192.168.2.2", "192.168.2.50")
+        self.brname = brname
+        self.ip = ip
+        self.mask = mask
+        self.subHostIpRange = subHostIpRange
 
         self.serverFile = os.path.join(self.tmpDir, "cmd.socket")
         self.cmdSock = None
@@ -156,7 +201,7 @@ class _VirtualBridge:
         self.selfHostFile = os.path.join(self.tmpDir, "dnsmasq.self")
         self.hostsDir = os.path.join(self.tmpDir, "hosts.d")
         self.pidFile = os.path.join(self.tmpDir, "dnsmasq.pid")
-        self.dnsmasqProc = NoneserverFile
+        self.dnsmasqProc = None
 
     def init2(self, l2DnsPort, clientAppearFunc, clientChangeFunc, clientDisappearFunc):
         self.l2DnsPort = l2DnsPort
@@ -177,29 +222,28 @@ class _VirtualBridge:
         return self.ip
 
     def get_netmask(self):
-        return self.mask_VirtualBridge
+        return self.mask
 
     def get_subhost_ip_range(self):
-        # return (start_ip, ip_number, count)
-        assert False
+        return self.subhostIpRange
 
     def on_other_bridge_created(self, id):
         with open(os.path.join(self.hostsDir, id), "w") as f:
-            pass
+            f.write("")
 
     def on_other_bridge_destroyed(self, id):
         os.unlink(os.path.join(self.hostsDir, id))
 
     def on_subhost_owner_connected(self, id):
         with open(os.path.join(self.hostsDir, id), "w") as f:
-            pass
-        
+            f.write("")
+
     def on_subhost_owner_disconnected(self, id):
         os.unlink(os.path.join(self.hostsDir, id))
 
     def on_upstream_connected(self, id):
         with open(os.path.join(self.hostsDir, id), "w") as f:
-            pass
+            f.write("")
 
     def on_upstream_disconnected(self, id):
         os.unlink(os.path.join(self.hostsDir, id))
@@ -210,7 +254,7 @@ class _VirtualBridge:
         with open(fn, "a") as f:
             for ip, data in ipDataDict.items():
                 if "hostname" in data:
-                    f.write(ip + " " + hostname + "\n")
+                    f.write(ip + " " + data["hostname"] + "\n")
                     bChanged = True
 
         if bChanged:
@@ -226,7 +270,7 @@ class _VirtualBridge:
 
         lineList2 = []
         for line in lineList:
-            if ip != line.split(" ")[0]:
+            if line.split(" ")[0] not in ipList:
                 lineList2.append(line)
             else:
                 bChanged = True
@@ -243,11 +287,11 @@ class _VirtualBridge:
         buf = ""
         with open(fn, "r") as f:
             buf = f.read()
-        
+
         buf2 = ""
         for ip, data in ipDataDict.items():
             if "hostname" in data:
-                buf2 += ip + " " + hostname + "\n"
+                buf2 += ip + " " + data["hostname"] + "\n"
 
         if buf != buf2:
             with open(fn, "w") as f:
@@ -286,7 +330,7 @@ class _VirtualBridge:
         buf = ""
         buf += "strict-order\n"
         buf += "bind-interfaces\n"                            # don't listen on 0.0.0.0
-        buf += "interface=lo,%s\n" % (self.brname)
+        buf += "interface=%s\n" % (self.brname)
         buf += "user=root\n"
         buf += "group=root\n"
         buf += "\n"
@@ -387,3 +431,38 @@ class _Util:
             func(*args)
             return False
         GLib.idle_add(_idleCallback, func, *args)
+
+    @staticmethod
+    def genSelfSignedCertAndKey(cn, keysize):
+        k = crypto.PKey()
+        k.generate_key(crypto.TYPE_RSA, keysize)
+
+        cert = crypto.X509()
+        cert.get_subject().CN = cn
+        cert.set_serial_number(random.randint(0, 65535))
+        cert.gmtime_adj_notBefore(100 * 365 * 24 * 60 * 60 * -1)
+        cert.gmtime_adj_notAfter(100 * 365 * 24 * 60 * 60)
+        cert.set_issuer(cert.get_subject())
+        cert.set_pubkey(k)
+        cert.sign(k, 'sha1')
+
+        return (cert, k)
+
+    @staticmethod
+    def dumpCertAndKey(cert, key, certFile, keyFile):
+        with open(certFile, "wb") as f:
+            buf = crypto.dump_certificate(crypto.FILETYPE_PEM, cert)
+            f.write(buf)
+            os.fchmod(f.fileno(), 0o644)
+
+        with open(keyFile, "wb") as f:
+            buf = crypto.dump_privatekey(crypto.FILETYPE_PEM, key)
+            f.write(buf)
+            os.fchmod(f.fileno(), 0o600)
+
+    @staticmethod
+    def genDh(key_size, outfile):
+        cmd = "/usr/bin/openssl dhparam -out \"%s\" %d" % (outfile, key_size)
+        proc = subprocess.Popen(cmd, shell=True, universal_newlines=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        retcode = proc.wait()
+        assert retcode == 0
