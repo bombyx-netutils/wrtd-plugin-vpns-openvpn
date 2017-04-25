@@ -66,9 +66,6 @@ class _PluginObject:
         self.bridge = None
 
     def start(self):
-        if not os.path.exists(self.varDir):
-            os.makedirs(self.varDir)
-
         if not os.path.exists(self.caCertFile) or not os.path.exists(self.caKeyFile):
             caCert, caKey = _Util.genSelfSignedCertAndKey("wrtd-openvpn-ca", self.keySize)
             _Util.dumpCertAndKey(caCert, caKey, self.caCertFile, self.caKeyFile)
