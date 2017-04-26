@@ -317,6 +317,7 @@ class _VirtualBridge:
     def _runCmdServer(self):
         self.cmdSock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
         self.cmdSock.bind(self.serverFile)
+        self.cmdSock.settimeout(10.0)
 
         self.cmdServerThread = _CmdServerThread(self)
         self.cmdServerThread.start()
@@ -397,6 +398,8 @@ class _CmdServerThread(threading.Thread):
             try:
                 buf = self.pObj.cmdSock.recvfrom(4096).decode("utf-8")
                 jsonObj = json.loads(buf)
+            except socket.timeout:
+                continue
             except socket.error:
                 break
 
