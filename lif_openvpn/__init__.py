@@ -3,10 +3,12 @@
 
 import os
 import json
+import time
 import socket
 import random
 import signal
 import shutil
+import netifaces
 import ipaddress
 import threading
 import subprocess
@@ -72,6 +74,9 @@ class _PluginObject:
             _Util.genDh(self.keySize, self.servDhFile)
 
         self._runOpenvpnServer()
+        while self.intfName not in netifaces.interfaces():
+            time.sleep(1.0)
+
         self.bridge._runDnsmasq()
         self.bridge._runCmdServer()
 
