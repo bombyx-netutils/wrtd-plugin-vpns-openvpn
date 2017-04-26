@@ -39,7 +39,7 @@ class _PluginObject:
         self.proto = self.cfg.get("proto", "udp")
         self.port = self.cfg.get("port", 1194)
 
-        self.intfName = "wrt-lif-ovpn"
+        self.intfName = "wrtd-lif-openvpn"
         self.bridge = _VirtualBridge(self)
 
         self.clientCertCn = "wrtd-openvpn"
@@ -72,8 +72,12 @@ class _PluginObject:
             _Util.genDh(self.keySize, self.servDhFile)
 
         self._runOpenvpnServer()
+        self.bridge._runDnsmasq()
+        self.bridge._runCmdServer()
 
     def stop(self):
+        self.bridge._stopCmdServer()
+        self.bridge._stopDnsmasq()
         if self.proc is not None:
             self.proc.terminate()
             self.proc.wait()
@@ -213,12 +217,8 @@ class _VirtualBridge:
         self.clientChangeFunc = clientChangeFunc
         self.clientDisappearFunc = clientDisappearFunc
 
-        self._runDnsmasq()
-        self._runCmdServer()
-
     def dispose(self):
-        self._stopCmdServer()
-        self._stopDnsmasq()
+        pass
 
     def get_bridge_id(self):
         return "bridge-" + self.ip
