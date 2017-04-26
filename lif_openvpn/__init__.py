@@ -120,8 +120,9 @@ class _PluginObject:
             f.write("keepalive 10 120\n")
             f.write("\n")
 
-            f.write("server-bridge %s %s %s %s\n" % (self.bridge.ip, self.bridge.mask, self.bridge.dhcpStart, self.bridge.dhcpEnd))
             f.write("topology subnet\n")
+            f.write("server %s %s nopool\n" % (self.bridge.ip, self.bridge.mask))
+            f.write("ifconfig-pool %s %s %s\n" % (self.bridge.dhcpStart, self.bridge.dhcpEnd, self.bridge.mask))
             f.write("client-to-client\n")
             f.write("\n")
 
