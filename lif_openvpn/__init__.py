@@ -32,19 +32,16 @@ def get_plugin(name):
 class _PluginObject:
 
     def init2(self, instanceName, cfg, tmpDir, varDir):
-        assert instanceName == ""
         self.cfg = cfg
         self.tmpDir = tmpDir
         self.varDir = varDir
 
-        self.prefix = self.cfg.get("prefix")
         self.proto = self.cfg.get("proto", "udp")
         self.port = self.cfg.get("port", 1194)
 
-        self.intfName = "wrtd-lif-openvpn"
         self.bridge = _VirtualBridge(self)
 
-        self.clientCertCn = "wrtd-openvpn"
+        self.clientCertCn = "wrtd-openvpn-client"
         self.keySize = 1024
         self.caCertFile = os.path.join(self.varDir, "ca-cert.pem")
         self.caKeyFile = os.path.join(self.varDir, "ca-privkey.pem")
@@ -74,7 +71,7 @@ class _PluginObject:
             _Util.genDh(self.keySize, self.servDhFile)
 
         self._runOpenvpnServer()
-        while self.intfName not in netifaces.interfaces():
+        while self.bridge.intfName not in netifaces.interfaces():
             time.sleep(1.0)
 
         self.bridge._runDnsmasq()
@@ -92,7 +89,7 @@ class _PluginObject:
         return self.bridge
 
     def interface_appear(self, bridge, ifname):
-        if ifname == self.pObj.intfName:
+        if ifname == self.bridge.intfName:
             return True
         else:
             return False
@@ -116,12 +113,12 @@ class _PluginObject:
             f.write("\n")
 
             f.write("dev-type tap\n")
-            f.write("dev %s\n" % (self.intfName))
+            f.write("dev %s\n" % (self.bridge.intfName))
             f.write("keepalive 10 120\n")
             f.write("\n")
 
             f.write("topology subnet\n")
-            f.write("server %s %s nopool\n" % (self.bridge.ip, self.bridge.mask))
+            f.write("server %s %s nopool\n" % (self.bridge.prefix, self.bridge.mask))
             f.write("ifconfig-pool %s %s %s\n" % (self.bridge.dhcpStart, self.bridge.dhcpEnd, self.bridge.mask))
             f.write("client-to-client\n")
             f.write("\n")
@@ -184,6 +181,7 @@ class _VirtualBridge:
         self.clientChangeFunc = None
         self.clientDisappearFunc = None
 
+        self.intfName = None
         self.prefix = None
         self.mask = None
         self.ip = None
@@ -201,9 +199,10 @@ class _VirtualBridge:
         self.pidFile = os.path.join(self.pObj.tmpDir, "dnsmasq.pid")
         self.dnsmasqProc = None
 
-    def init2(self, prefix, l2DnsPort, clientAppearFunc, clientChangeFunc, clientDisappearFunc):
+    def init2(self, brname, prefix, l2DnsPort, clientAppearFunc, clientChangeFunc, clientDisappearFunc):
         assert prefix[1] == "255.255.255.0"
 
+        self.intfName = brname
         self.prefix = prefix[0]
         self.mask = prefix[1]
         self.ip = str(ipaddress.IPv4Address(self.prefix) + 1)
@@ -225,6 +224,12 @@ class _VirtualBridge:
 
     def dispose(self):
         pass
+
+    def get_name(self):
+        return self.intfName
+
+    def get_prefix(self):
+        return (self.prefix, self.mask)
 
     def get_bridge_id(self):
         return "bridge-" + self.ip
@@ -341,7 +346,7 @@ class _VirtualBridge:
         buf = ""
         buf += "strict-order\n"
         buf += "bind-interfaces\n"                            # don't listen on 0.0.0.0
-        buf += "interface=%s\n" % (self.pObj.intfName)
+        buf += "interface=%s\n" % (self.intfName)
         buf += "except-interface=lo\n"                        # don't listen on 127.0.0.1
         buf += "user=root\n"
         buf += "group=root\n"
