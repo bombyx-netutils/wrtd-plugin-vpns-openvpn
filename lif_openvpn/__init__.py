@@ -63,6 +63,8 @@ class _PluginObject:
                 os.unlink(self.servKeyFile)
             if os.path.exists(self.servDhFile):
                 os.unlink(self.servDhFile)
+        else:
+            caCert, caKey = _Util.loadCertAndKey(self.caCertFile, self.caKeyFile)
 
         if not os.path.exists(self.servCertFile) or not os.path.exists(self.servKeyFile) or not os.path.exists(self.servDhFile):
             cert, k = _Util.genCertAndKey(caCert, caKey, "wrtd-openvpn", self.keySize)
@@ -436,6 +438,22 @@ class _Util:
         GLib.idle_add(_idleCallback, func, *args)
 
     @staticmethod
+    def genCertAndKey(caCert, caKey, cn, keysize):
+        k = crypto.PKey()
+        k.generate_key(crypto.TYPE_RSA, keysize)
+
+        cert = crypto.X509()
+        cert.get_subject().CN = cn
+        cert.set_serial_number(random.randint(0, 65535))
+        cert.gmtime_adj_notBefore(100 * 365 * 24 * 60 * 60 * -1)
+        cert.gmtime_adj_notAfter(100 * 365 * 24 * 60 * 60)
+        cert.set_issuer(caCert.get_subject())
+        cert.set_pubkey(k)
+        cert.sign(caKey, 'sha1')
+
+        return (cert, k)
+
+    @staticmethod
     def genSelfSignedCertAndKey(cn, keysize):
         k = crypto.PKey()
         k.generate_key(crypto.TYPE_RSA, keysize)
@@ -450,6 +468,20 @@ class _Util:
         cert.sign(k, 'sha1')
 
         return (cert, k)
+
+    @staticmethod
+    def loadCertAndKey(certFile, keyFile):
+        cert = None
+        with open(certFile, "rt") as f:
+            buf = f.read()
+            cert = crypto.load_certificate(crypto.FILETYPE_PEM, buf)
+
+        key = None
+        with open(keyFile, "rt") as f:
+            buf = f.read()
+            key = crypto.load_privatekey(crypto.FILETYPE_PEM, buf)
+
+        return (cert, key)
 
     @staticmethod
     def dumpCertAndKey(cert, key, certFile, keyFile):
