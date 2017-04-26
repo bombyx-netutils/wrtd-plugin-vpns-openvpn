@@ -40,18 +40,7 @@ class _PluginObject:
         self.port = self.cfg.get("port", 1194)
 
         self.intfName = "wrt-lif-ovpn"
-        self.intfIp = (ipaddress.IPv4Address(self.prefix) + 1)
-        self.netmask = "255.255.255.0"
-        self.dhcpStart = str(ipaddress.IPv4Address(self.param.prefix) + 2)
-        self.dhcpEnd = str(ipaddress.IPv4Address(self.param.prefix) + 50)
-
-        self.subhostIpRange = []
-        i = 51
-        while i + 49 < 255:
-            s = str(ipaddress.IPv4Address(self.param.prefix) + i)
-            e = str(ipaddress.IPv4Address(self.param.prefix) + i + 49)
-            self.subhostIpRange.append((s, e))
-            i += 50
+        self.bridge = _VirtualBridge(self)
 
         self.clientCertCn = "wrtd-openvpn"
         self.keySize = 1024
@@ -63,7 +52,6 @@ class _PluginObject:
 
         self.serverFile = os.path.join(self.tmpDir, "cmd.socket")
         self.proc = None
-        self.bridge = None
 
     def start(self):
         if not os.path.exists(self.caCertFile) or not os.path.exists(self.caKeyFile):
@@ -82,7 +70,6 @@ class _PluginObject:
             _Util.genDh(self.keySize, self.servDhFile)
 
         self._runOpenvpnServer()
-        self.bridge = _VirtualBridge(self.tmpDir, self.intfName, self.netmask, self.subhostIpRange)
 
     def stop(self):
         if self.proc is not None:
@@ -94,7 +81,7 @@ class _PluginObject:
         return self.bridge
 
     def interface_appear(self, bridge, ifname):
-        if ifname == self.intfName:
+        if ifname == self.pObj.intfName:
             return True
         else:
             return False
@@ -122,7 +109,7 @@ class _PluginObject:
             f.write("keepalive 10 120\n")
             f.write("\n")
 
-            f.write("server-bridge %s %s %s %s\n" % (self.intfIp, self.netmask, self.dhcpStart, self.dhcpEnd))
+            f.write("server-bridge %s %s %s %s\n" % (self.bridge.ip, self.bridge.mask, self.bridge.dhcpStart, self.bridge.dhcpEnd))
             f.write("topology subnet\n")
             f.write("client-to-client\n")
             f.write("\n")
@@ -178,33 +165,52 @@ class _PluginObject:
 
 class _VirtualBridge:
 
-    def __init__(self, tmpDir, brname, ip, mask, subHostIpRange):
-        self.tmpDir = tmpDir
+    def __init__(self, pObj):
+        self.pObj = pObj
         self.l2DnsPort = None
         self.clientAppearFunc = None
         self.clientChangeFunc = None
         self.clientDisappearFunc = None
 
-        self.brname = brname
-        self.ip = ip
-        self.mask = mask
-        self.subHostIpRange = subHostIpRange
+        self.prefix = None
+        self.mask = None
+        self.ip = None
+        self.dhcpStart = None
+        self.dhcpEnd = None
+        self.subHostIpRange = None
 
-        self.serverFile = os.path.join(self.tmpDir, "cmd.socket")
+        self.serverFile = os.path.join(self.pObj.tmpDir, "cmd.socket")
         self.cmdSock = None
         self.cmdServerThread = None
 
-        self.myhostnameFile = os.path.join(self.tmpDir, "dnsmasq.myhostname")
-        self.selfHostFile = os.path.join(self.tmpDir, "dnsmasq.self")
-        self.hostsDir = os.path.join(self.tmpDir, "hosts.d")
-        self.pidFile = os.path.join(self.tmpDir, "dnsmasq.pid")
+        self.myhostnameFile = os.path.join(self.pObj.tmpDir, "dnsmasq.myhostname")
+        self.selfHostFile = os.path.join(self.pObj.tmpDir, "dnsmasq.self")
+        self.hostsDir = os.path.join(self.pObj.tmpDir, "hosts.d")
+        self.pidFile = os.path.join(self.pObj.tmpDir, "dnsmasq.pid")
         self.dnsmasqProc = None
 
-    def init2(self, l2DnsPort, clientAppearFunc, clientChangeFunc, clientDisappearFunc):
+    def init2(self, prefix, l2DnsPort, clientAppearFunc, clientChangeFunc, clientDisappearFunc):
+        assert prefix[1] == "255.255.255.0"
+
+        self.prefix = prefix[0]
+        self.mask = prefix[1]
+        self.ip = str(ipaddress.IPv4Address(self.prefix) + 1)
+        self.dhcpStart = str(ipaddress.IPv4Address(self.prefix) + 2)
+        self.dhcpEnd = str(ipaddress.IPv4Address(self.prefix) + 50)
+
+        self.subhostIpRange = []
+        i = 51
+        while i + 49 < 255:
+            s = str(ipaddress.IPv4Address(self.prefix) + i)
+            e = str(ipaddress.IPv4Address(self.prefix) + i + 49)
+            self.subhostIpRange.append((s, e))
+            i += 50
+
         self.l2DnsPort = l2DnsPort
         self.clientAppearFunc = clientAppearFunc
         self.clientChangeFunc = clientChangeFunc
         self.clientDisappearFunc = clientDisappearFunc
+
         self._runDnsmasq()
         self._runCmdServer()
 
@@ -327,7 +333,7 @@ class _VirtualBridge:
         buf = ""
         buf += "strict-order\n"
         buf += "bind-interfaces\n"                            # don't listen on 0.0.0.0
-        buf += "interface=%s\n" % (self.brname)
+        buf += "interface=%s\n" % (self.pObj.intfName)
         buf += "user=root\n"
         buf += "group=root\n"
         buf += "\n"
@@ -339,7 +345,7 @@ class _VirtualBridge:
         buf += "addn-hosts=%s\n" % (self.myhostnameFile)                 # we use addn-hosts which has no inotify, and we send SIGHUP to dnsmasq when host file changes
         buf += "addn-hosts=%s\n" % (self.selfHostFile)
         buf += "\n"
-        cfgf = os.path.join(self.tmpDir, "dnsmasq.conf")
+        cfgf = os.path.join(self.pObj.tmpDir, "dnsmasq.conf")
         with open(cfgf, "w") as f:
             f.write(buf)
 
