@@ -49,7 +49,8 @@ class _PluginObject:
         self.servKeyFile = os.path.join(self.varDir, "server-privkey.pem")
         self.servDhFile = os.path.join(self.varDir, "dh.pem")
 
-        self.serverFile = os.path.join(self.tmpDir, "cmd.socket")
+        self.cmdServerPort = _Util.getFreeSocketPort("udp")
+
         self.proc = None
 
     def start(self):
@@ -130,8 +131,8 @@ class _PluginObject:
 
             f.write("script-security 2\n")
             f.write("auth-user-pass-verify \"%s/openvpn-script-auth.sh\" via-env\n" % (selfdir))
-            f.write("client-connect \"%s/openvpn-script-client.py %s\"\n" % (selfdir, self.serverFile))
-            f.write("client-disconnect \"%s/openvpn-script-client.py %s\"\n" % (selfdir, self.serverFile))
+            f.write("client-connect \"%s/openvpn-script-client.py %d\"\n" % (selfdir, self.cmdServerPort))
+            f.write("client-disconnect \"%s/openvpn-script-client.py %d\"\n" % (selfdir, self.cmdServerPort))
             f.write("\n")
 
             f.write("push \"redirect-gateway\"\n")
@@ -189,7 +190,6 @@ class _VirtualBridge:
         self.dhcpEnd = None
         self.subHostIpRange = None
 
-        self.serverFile = os.path.join(self.pObj.tmpDir, "cmd.socket")
         self.cmdSock = None
         self.cmdServerThread = None
 
@@ -315,8 +315,8 @@ class _VirtualBridge:
             self.dnsmasqProc.send_signal(signal.SIGHUP)
 
     def _runCmdServer(self):
-        self.cmdSock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
-        self.cmdSock.bind(self.serverFile)
+        self.cmdSock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.cmdSock.bind(("127.0.0.1", self.pObj.cmdServerPort))
 
         self.cmdServerThread = _CmdServerThread(self)
         self.cmdServerThread.start()
@@ -421,6 +421,32 @@ class _CmdServerThread(threading.Thread):
 
 
 class _Util:
+
+    @staticmethod
+    def getFreeSocketPort(portType):
+        if portType == "tcp":
+            stlist = [socket.SOCK_STREAM]
+        elif portType == "udp":
+            stlist = [socket.SOCK_DGRAM]
+        elif portType == "tcp+udp":
+            stlist = [socket.SOCK_STREAM, socket.SOCK_DGRAM]
+        else:
+            assert False
+
+        for port in range(10000, 65536):
+            bFound = True
+            for sType in stlist:
+                s = socket.socket(socket.AF_INET, sType)
+                try:
+                    s.bind((('', port)))
+                except socket.error:
+                    bFound = False
+                finally:
+                    s.close()
+            if bFound:
+                return port
+
+        raise Exception("no valid port")
 
     @staticmethod
     def addToDnsmasqHostFile(filename, ip, hostname):

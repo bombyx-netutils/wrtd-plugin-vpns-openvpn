@@ -6,7 +6,7 @@ import json
 import socket
 
 
-serverFile = sys.argv[1]
+serverPort = sys.argv[1]
 
 data = dict()
 if os.environ['script_type'] == "client-connect":
@@ -18,6 +18,6 @@ else:
 data["ip"] = os.environ['ifconfig_pool_remote_ip']
 data["hostname"] = os.environ['username']
 
-sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
-sock.sendto(serverFile, json.dumps(data))
+sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+sock.sendto(("127.0.0.1", serverPort), json.dumps(data))
 sock.close()
