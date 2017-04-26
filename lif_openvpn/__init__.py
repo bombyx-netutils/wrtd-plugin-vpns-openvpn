@@ -91,7 +91,7 @@ class _PluginObject:
     def interface_disappear(self, ifname):
         pass
 
-    def _runOpenvpnServer(self, i):
+    def _runOpenvpnServer(self):
         selfdir = os.path.dirname(os.path.realpath(__file__))
         cfgf = os.path.join(self.tmpDir, "config.ovpn")
         mngf = os.path.join(self.tmpDir, "management.socket")
