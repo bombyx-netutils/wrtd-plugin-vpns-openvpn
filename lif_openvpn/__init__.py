@@ -336,6 +336,7 @@ class _VirtualBridge:
         buf += "strict-order\n"
         buf += "bind-interfaces\n"                            # don't listen on 0.0.0.0
         buf += "interface=%s\n" % (self.pObj.intfName)
+        buf += "except-interface=lo\n"                        # don't listen on 127.0.0.1
         buf += "user=root\n"
         buf += "group=root\n"
         buf += "\n"
