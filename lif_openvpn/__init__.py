@@ -71,7 +71,7 @@ class _PluginObject:
             _Util.genDh(self.keySize, self.servDhFile)
 
         self._runOpenvpnServer()
-        while self.bridge.intfName not in netifaces.interfaces():
+        while self.bridge.brname not in netifaces.interfaces():
             time.sleep(1.0)
 
         self.bridge._runDnsmasq()
@@ -89,7 +89,7 @@ class _PluginObject:
         return self.bridge
 
     def interface_appear(self, bridge, ifname):
-        if ifname == self.bridge.intfName:
+        if ifname == self.bridge.brname:
             return True
         else:
             return False
@@ -113,13 +113,13 @@ class _PluginObject:
             f.write("\n")
 
             f.write("dev-type tap\n")
-            f.write("dev %s\n" % (self.bridge.intfName))
+            f.write("dev %s\n" % (self.bridge.brname))
             f.write("keepalive 10 120\n")
             f.write("\n")
 
             f.write("topology subnet\n")
-            f.write("server %s %s nopool\n" % (self.bridge.prefix, self.bridge.mask))
-            f.write("ifconfig-pool %s %s %s\n" % (self.bridge.dhcpStart, self.bridge.dhcpEnd, self.bridge.mask))
+            f.write("server %s %s nopool\n" % (self.bridge.brnetwork.network_address, self.bridge.brnetwork.netmask))
+            f.write("ifconfig-pool %s %s %s\n" % (self.bridge.brnetwork.dhcpRange[0], self.bridge.brnetwork.dhcpRange[1], self.bridge.brnetwork.netmask))
             f.write("client-to-client\n")
             f.write("\n")
 
@@ -181,12 +181,8 @@ class _VirtualBridge:
         self.clientChangeFunc = None
         self.clientDisappearFunc = None
 
-        self.intfName = None
-        self.prefix = None
-        self.mask = None
-        self.ip = None
-        self.dhcpStart = None
-        self.dhcpEnd = None
+        self.brname = None
+        self.dhcpRange = None
         self.subHostIpRange = None
 
         self.serverFile = os.path.join(self.pObj.tmpDir, "cmd.socket")
@@ -202,18 +198,14 @@ class _VirtualBridge:
     def init2(self, brname, prefix, l2DnsPort, clientAppearFunc, clientChangeFunc, clientDisappearFunc):
         assert prefix[1] == "255.255.255.0"
 
-        self.intfName = brname
-        self.prefix = prefix[0]
-        self.mask = prefix[1]
-        self.ip = str(ipaddress.IPv4Address(self.prefix) + 1)
-        self.dhcpStart = str(ipaddress.IPv4Address(self.prefix) + 2)
-        self.dhcpEnd = str(ipaddress.IPv4Address(self.prefix) + 50)
-
+        self.brname = brname
+        self.brnetwork = ipaddress.IPv4Network(prefix)
+        self.dhcpRange = (self.brnetwork.hosts()[1], self.brnetwork.hosts()[50])
         self.subhostIpRange = []
         i = 51
         while i + 49 < 255:
-            s = str(ipaddress.IPv4Address(self.prefix) + i)
-            e = str(ipaddress.IPv4Address(self.prefix) + i + 49)
+            s = self.brnetwork.hosts()[i]
+            e = self.brnetwork.hsots()[i + 49]
             self.subhostIpRange.append((s, e))
             i += 50
 
@@ -226,16 +218,16 @@ class _VirtualBridge:
         pass
 
     def get_name(self):
-        return self.intfName
+        return self.brname
 
     def get_prefix(self):
-        return (self.prefix, self.mask)
+        return (self.brnetwork.network_address, self.brnetwork.netmask)
 
     def get_bridge_id(self):
-        return "bridge-" + self.ip
+        return "bridge-" + self.brnetwork.hosts()[0]
 
     def get_ip(self):
-        return self.ip
+        return self.brnetwork.hosts()[0]
 
     def get_netmask(self):
         return self.mask
@@ -333,7 +325,7 @@ class _VirtualBridge:
     def _runDnsmasq(self):
         # myhostname file
         with open(self.myhostnameFile, "w") as f:
-            f.write("%s %s\n" % (self.ip, socket.gethostname()))
+            f.write("%s %s\n" % (self.brnetwork.hosts()[0], socket.gethostname()))
 
         # self host file
         with open(self.selfHostFile, "w") as f:
@@ -346,7 +338,7 @@ class _VirtualBridge:
         buf = ""
         buf += "strict-order\n"
         buf += "bind-interfaces\n"                            # don't listen on 0.0.0.0
-        buf += "interface=%s\n" % (self.intfName)
+        buf += "interface=%s\n" % (self.brname)
         buf += "except-interface=lo\n"                        # don't listen on 127.0.0.1
         buf += "user=root\n"
         buf += "group=root\n"
