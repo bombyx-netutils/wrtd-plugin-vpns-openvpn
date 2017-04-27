@@ -317,7 +317,7 @@ class _VirtualBridge:
     def _runCmdServer(self):
         self.cmdSock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
         self.cmdSock.bind(self.serverFile)
-        self.cmdSock.settimeout(10.0)           # socket.recvfrom() is not interrupted when socket.close() is called in other thread, so we need a timeout. sucks!
+        self.cmdSock.settimeout(1.0)           # socket.recvfrom() is not interrupted when socket.close() is called in other thread, so we need a timeout. sucks!
 
         self.cmdServerThread = _CmdServerThread(self)
         self.cmdServerThread.start()
