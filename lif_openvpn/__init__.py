@@ -200,13 +200,13 @@ class _VirtualBridge:
 
         self.brname = brname
         self.brnetwork = ipaddress.IPv4Network(prefix)
-        self.dhcpRange = (self.brnetwork.hosts()[1], self.brnetwork.hosts()[50])
+
+        self.brip = ipaddress.IPv4Address(prefix[0]) + 1
+        self.dhcpRange = (self.brip + 1, self.brip + 49)
         self.subhostIpRange = []
         i = 51
         while i + 49 < 255:
-            s = self.brnetwork.hosts()[i]
-            e = self.brnetwork.hsots()[i + 49]
-            self.subhostIpRange.append((s, e))
+            self.subhostIpRange.append((self.brip + i, self.brip + i + 49))
             i += 50
 
         self.l2DnsPort = l2DnsPort
@@ -224,13 +224,13 @@ class _VirtualBridge:
         return (self.brnetwork.network_address, self.brnetwork.netmask)
 
     def get_bridge_id(self):
-        return "bridge-" + self.brnetwork.hosts()[0]
+        return "bridge-" + self.brip
 
     def get_ip(self):
-        return self.brnetwork.hosts()[0]
+        return self.brip
 
     def get_netmask(self):
-        return self.mask
+        return self.brnetwork.netmask
 
     def get_subhost_ip_range(self):
         return self.subhostIpRange
@@ -326,7 +326,7 @@ class _VirtualBridge:
     def _runDnsmasq(self):
         # myhostname file
         with open(self.myhostnameFile, "w") as f:
-            f.write("%s %s\n" % (self.brnetwork.hosts()[0], socket.gethostname()))
+            f.write("%s %s\n" % (self.brip, socket.gethostname()))
 
         # self host file
         with open(self.selfHostFile, "w") as f:
