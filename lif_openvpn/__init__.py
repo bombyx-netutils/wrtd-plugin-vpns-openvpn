@@ -119,7 +119,7 @@ class _PluginObject:
 
             f.write("topology subnet\n")
             f.write("server %s %s nopool\n" % (self.bridge.brnetwork.network_address, self.bridge.brnetwork.netmask))
-            f.write("ifconfig-pool %s %s %s\n" % (self.bridge.brnetwork.dhcpRange[0], self.bridge.brnetwork.dhcpRange[1], self.bridge.brnetwork.netmask))
+            f.write("ifconfig-pool %s %s %s\n" % (self.bridge.dhcpRange[0], self.bridge.dhcpRange[1], self.bridge.brnetwork.netmask))
             f.write("client-to-client\n")
             f.write("\n")
 
