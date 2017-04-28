@@ -309,6 +309,7 @@ class _VirtualBridge:
     def _runCmdServer(self):
         self.cmdSock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
         self.cmdSock.bind(self.serverFile)
+        self.cmdSock.settimeout(1.0)           # socket.recvfrom() is not interrupted when socket.close() is called in other thread, so we need a timeout. sucks!
 
         self.cmdServerThread = _CmdServerThread(self)
         self.cmdServerThread.start()
@@ -363,18 +364,18 @@ class _VirtualBridge:
         self.dnsmasqProc = subprocess.Popen(cmd, shell=True, universal_newlines=True)
 
     def _stopDnsmasq(self):
-        if self.leaseScanTimer is not None:
-            GLib.source_remove(self.leaseScanTimer)
-            self.leaseScanTimer = None
-            self.lastScanRecord = None
         if self.dnsmasqProc is not None:
             self.dnsmasqProc.terminate()
             self.dnsmasqProc.wait()
             self.dnsmasqProc = None
-        os.unlink(self.pidFile)
-        shutil.rmtree(self.hostsDir)
-        os.unlink(self.selfHostFile)
-        os.unlink(self.myhostnameFile)
+        if os.path.exists(self.pidFile):
+            os.unlink(self.pidFile)
+        if os.path.exists(self.hostsDir):
+            shutil.rmtree(self.hostsDir)
+        if os.path.exists(self.selfHostFile):
+            os.unlink(self.selfHostFile)
+        if os.path.exists(self.myhostnameFile):
+            os.unlink(self.myhostnameFile)
 
 
 class _CmdServerThread(threading.Thread):
@@ -389,6 +390,8 @@ class _CmdServerThread(threading.Thread):
             try:
                 buf = self.pObj.cmdSock.recvfrom(4096).decode("utf-8")
                 jsonObj = json.loads(buf)
+            except socket.timeout:
+                continue
             except socket.error:
                 break
 
