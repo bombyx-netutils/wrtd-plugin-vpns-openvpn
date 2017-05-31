@@ -199,7 +199,7 @@ class _VirtualBridge:
         assert prefix[1] == "255.255.255.0"
 
         self.brname = brname
-        self.brnetwork = ipaddress.IPv4Network(prefix)
+        self.brnetwork = ipaddress.IPv4Network(prefix[0] + "/" + prefix[1])
 
         self.brip = ipaddress.IPv4Address(prefix[0]) + 1
         self.dhcpRange = (self.brip + 1, self.brip + 49)
