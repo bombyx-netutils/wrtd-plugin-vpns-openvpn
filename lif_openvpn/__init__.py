@@ -8,6 +8,7 @@ import socket
 import random
 import signal
 import shutil
+import logging
 import netifaces
 import ipaddress
 import threading
@@ -35,6 +36,7 @@ class _PluginObject:
         self.cfg = cfg
         self.tmpDir = tmpDir
         self.varDir = varDir
+        self.logger = logging.getLogger(self.__module__ + "." + self.__class__.__name__)
 
         self.proto = self.cfg.get("proto", "udp")
         self.port = self.cfg.get("port", 1194)
@@ -50,7 +52,6 @@ class _PluginObject:
         self.servDhFile = os.path.join(self.varDir, "dh.pem")
 
         self.serverFile = os.path.join(self.tmpDir, "cmd.socket")
-        self.proc = None
 
     def start(self):
         if not os.path.exists(self.caCertFile) or not os.path.exists(self.caKeyFile):
@@ -70,106 +71,32 @@ class _PluginObject:
             _Util.dumpCertAndKey(cert, k, self.servCertFile, self.servKeyFile)
             _Util.genDh(self.keySize, self.servDhFile)
 
-        self._runOpenvpnServer()
+        self.bridge._runOpenvpnServer()
         while self.bridge.brname not in netifaces.interfaces():
             time.sleep(1.0)
 
         self.bridge._runDnsmasq()
         self.bridge._runCmdServer()
+        self.logger.info("Started.")
 
     def stop(self):
         self.bridge._stopCmdServer()
         self.bridge._stopDnsmasq()
-        if self.proc is not None:
-            self.proc.terminate()
-            self.proc.wait()
-            self.proc = None
+        self.bridge._stopOpenvpnServer()
+        self.logger.info("Stopped.")
 
     def get_bridge(self):
         return self.bridge
 
     def interface_appear(self, bridge, ifname):
         if ifname == self.bridge.brname:
+            self.logger.info("Interface \"%s\" managed." % (ifname))
             return True
         else:
             return False
 
     def interface_disappear(self, ifname):
         pass
-
-    def _runOpenvpnServer(self):
-        selfdir = os.path.dirname(os.path.realpath(__file__))
-        cfgf = os.path.join(self.tmpDir, "config.ovpn")
-        mngf = os.path.join(self.tmpDir, "management.socket")
-
-        # generate openvpn config file
-        # notes:
-        # 1. no comp-lzo. it seems that "push comp-lzo" leads to errors, and I don't think compression saves much
-        with open(cfgf, "w") as f:
-            f.write("tmp-dir %s\n" % (self.tmpDir))
-
-            f.write("proto %s\n" % (self.proto))
-            f.write("port %s\n" % (self.port))
-            f.write("\n")
-
-            f.write("dev-type tap\n")
-            f.write("dev %s\n" % (self.bridge.brname))
-            f.write("keepalive 10 120\n")
-            f.write("\n")
-
-            f.write("topology subnet\n")
-            f.write("server %s %s nopool\n" % (self.bridge.brnetwork.network_address, self.bridge.brnetwork.netmask))
-            f.write("ifconfig-pool %s %s %s\n" % (self.bridge.dhcpRange[0], self.bridge.dhcpRange[1], self.bridge.brnetwork.netmask))
-            f.write("client-to-client\n")
-            f.write("\n")
-
-            f.write("duplicate-cn\n")
-            # f.write("ns-cert-type client\n")
-            f.write("verify-x509-name %s name\n" % (self.clientCertCn))
-            f.write("\n")
-
-            f.write("script-security 2\n")
-            f.write("auth-user-pass-verify \"%s/openvpn-script-auth.sh\" via-env\n" % (selfdir))
-            f.write("client-connect \"%s/openvpn-script-client.py %s\"\n" % (selfdir, self.serverFile))
-            f.write("client-disconnect \"%s/openvpn-script-client.py %s\"\n" % (selfdir, self.serverFile))
-            f.write("\n")
-
-            f.write("push \"redirect-gateway\"\n")
-            f.write("\n")
-
-            # f.write("push \"dhcp-option DNS 10.8.%d.1\"\n" % (i))
-            # f.write("\n")
-
-            f.write("ca %s\n" % (self.caCertFile))
-            f.write("cert %s\n" % (self.servCertFile))
-            f.write("key %s\n" % (self.servKeyFile))
-            f.write("dh %s\n" % (self.servDhFile))
-            f.write("\n")
-
-            f.write("user nobody\n")
-            f.write("group nobody\n")
-            f.write("\n")
-
-            f.write("persist-key\n")
-            f.write("persist-tun\n")
-            f.write("\n")
-
-            f.write("management %s unix\n" % (mngf))
-            # f.write("management-client-user ?\n")
-            # f.write("management-client-group ?\n")
-            f.write("\n")
-
-            f.write("status %s/status.log\n" % (self.tmpDir))
-            f.write("status-version 2\n")
-            f.write("verb 4\n")
-
-        # run openvpn process
-        cmd = ""
-        cmd += "/usr/sbin/openvpn "
-        cmd += "--config %s " % (cfgf)
-        cmd += "--writepid %s/openvpn.pid " % (self.tmpDir)
-        cmd += "> %s/openvpn.out 2>&1" % (self.tmpDir)
-        self.proc = subprocess.Popen(cmd, shell=True, universal_newlines=True)
 
 
 class _VirtualBridge:
@@ -184,6 +111,8 @@ class _VirtualBridge:
         self.brname = None
         self.dhcpRange = None
         self.subHostIpRange = None
+
+        self.openvpnProc = None
 
         self.serverFile = os.path.join(self.pObj.tmpDir, "cmd.socket")
         self.cmdSock = None
@@ -302,6 +231,86 @@ class _VirtualBridge:
             with open(fn, "w") as f:
                 f.write(buf2)
             self.dnsmasqProc.send_signal(signal.SIGHUP)
+
+    def _runOpenvpnServer(self):
+        selfdir = os.path.dirname(os.path.realpath(__file__))
+        cfgf = os.path.join(self.pObj.tmpDir, "config.ovpn")
+        mngf = os.path.join(self.pObj.tmpDir, "management.socket")
+
+        # generate openvpn config file
+        # notes:
+        # 1. no comp-lzo. it seems that "push comp-lzo" leads to errors, and I don't think compression saves much
+        with open(cfgf, "w") as f:
+            f.write("tmp-dir %s\n" % (self.pObj.tmpDir))
+
+            f.write("proto %s\n" % (self.pObj.proto))
+            f.write("port %s\n" % (self.pObj.port))
+            f.write("\n")
+
+            f.write("dev-type tap\n")
+            f.write("dev %s\n" % (self.brname))
+            f.write("keepalive 10 120\n")
+            f.write("\n")
+
+            f.write("topology subnet\n")
+            f.write("server %s %s nopool\n" % (self.brnetwork.network_address, self.brnetwork.netmask))
+            f.write("ifconfig-pool %s %s %s\n" % (self.dhcpRange[0], self.dhcpRange[1], self.brnetwork.netmask))
+            f.write("client-to-client\n")
+            f.write("\n")
+
+            f.write("duplicate-cn\n")
+            # f.write("ns-cert-type client\n")
+            f.write("verify-x509-name %s name\n" % (self.pObj.clientCertCn))
+            f.write("\n")
+
+            f.write("script-security 2\n")
+            f.write("auth-user-pass-verify \"%s/openvpn-script-auth.sh\" via-env\n" % (selfdir))
+            f.write("client-connect \"%s/openvpn-script-client.py %s\"\n" % (selfdir, self.pObj.serverFile))
+            f.write("client-disconnect \"%s/openvpn-script-client.py %s\"\n" % (selfdir, self.pObj.serverFile))
+            f.write("\n")
+
+            f.write("push \"redirect-gateway\"\n")
+            f.write("\n")
+
+            # f.write("push \"dhcp-option DNS 10.8.%d.1\"\n" % (i))
+            # f.write("\n")
+
+            f.write("ca %s\n" % (self.pObj.caCertFile))
+            f.write("cert %s\n" % (self.pObj.servCertFile))
+            f.write("key %s\n" % (self.pObj.servKeyFile))
+            f.write("dh %s\n" % (self.pObj.servDhFile))
+            f.write("\n")
+
+            f.write("user nobody\n")
+            f.write("group nobody\n")
+            f.write("\n")
+
+            f.write("persist-key\n")
+            f.write("persist-tun\n")
+            f.write("\n")
+
+            f.write("management %s unix\n" % (mngf))
+            # f.write("management-client-user ?\n")
+            # f.write("management-client-group ?\n")
+            f.write("\n")
+
+            f.write("status %s/status.log\n" % (self.pObj.tmpDir))
+            f.write("status-version 2\n")
+            f.write("verb 4\n")
+
+        # run openvpn process
+        cmd = ""
+        cmd += "/usr/sbin/openvpn "
+        cmd += "--config %s " % (cfgf)
+        cmd += "--writepid %s/openvpn.pid " % (self.pObj.tmpDir)
+        cmd += "> %s/openvpn.out 2>&1" % (self.pObj.tmpDir)
+        self.openvpnProc = subprocess.Popen(cmd, shell=True, universal_newlines=True)
+
+    def _stopOpenvpnServer(self):
+        if self.openvpnProc is not None:
+            self.openvpnProc.terminate()
+            self.openvpnProc.wait()
+            self.openvpnProc = None
 
     def _runCmdServer(self):
         self.cmdSock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
