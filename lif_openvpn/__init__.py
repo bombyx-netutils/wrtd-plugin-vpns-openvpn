@@ -98,6 +98,94 @@ class _PluginObject:
     def interface_disappear(self, ifname):
         pass
 
+    def generate_client_script(self, ostype):
+        # convert entry info list to json object
+        jsonObj = OrderedDict()
+        jsonObj["proto"] = self.proto
+        jsonObj["port"] = self.port
+        jsonStr = json.dumps(jsonObj)
+
+        # get CA certificate and private key
+        caCert, caKey = _Util.loadCertAndKey(self.caCertFile, self.caKeyFile)
+
+        # generate certificate and private key
+        cert, k = _Util.genCertAndKey(caCert, caKey, self.clientCertCn, self.keySize)
+
+        # generate client script
+        caStr = crypto.dump_certificate(crypto.FILETYPE_PEM, caCert).decode("ascii")
+        certStr = crypto.dump_certificate(crypto.FILETYPE_PEM, cert).decode("ascii")
+        keyStr = crypto.dump_privatekey(crypto.FILETYPE_PEM, k).decode("ascii")
+
+        if ostype == "linux":
+            return self.__createLinuxClientScript(caStr, certStr, keyStr, jsonStr)
+        elif ostype == "win32":
+            return self.__createWin32ClientScript(caStr, certStr, keyStr, jsonStr)
+        else:
+            assert False
+
+    def __createLinuxClientScript(self, caStr, certStr, keyStr, entryData):
+        selfdir = os.path.dirname(os.path.realpath(__file__))
+
+        buf = ""
+        with open(os.path.join(selfdir, "client-script-linux.sh.in")) as f:
+            buf = f.read()
+
+        buf = buf.replace("@hostname@", "123.56.97.115")
+        buf = buf.replace("@ca_cert@", caStr)
+        buf = buf.replace("@client_cert@", certStr)
+        buf = buf.replace("@client_key@", keyStr)
+        buf = buf.replace("@entry_data@", entryData)
+
+        return ("client-script.sh", buf)
+
+    def __createWin32ClientScript(self, caStr, certStr, keyStr, entryInfoList):
+        assert False        # lack of mantainence
+
+        selfdir = os.path.dirname(os.path.realpath(__file__))
+
+        buf = ""
+        with open(os.path.join(selfdir, "client-script-win32.vbs.in")) as f:
+            buf = f.read()
+
+        buf = buf.replace("@hostname@", "fpemud.ddns.net")
+
+        s = "CA_CERT = \"\"\n"
+        for line in caStr.split("\n"):
+            s += "CA_CERT = CA_CERT & \"%s\" & vbCrLf\n" % (line)
+        buf = buf.replace("@ca_cert@", s)
+
+        s = "CERT = \"\"\n"
+        for line in certStr.split("\n"):
+            s += "CERT = CERT & \"%s\" & vbCrLf\n" % (line)
+        buf = buf.replace("@client_cert@", s)
+
+        s = "KEY = \"\"\n"
+        for line in keyStr.split("\n"):
+            s += "KEY = KEY & \"%s\" & vbCrLf\n" % (line)
+        buf = buf.replace("@client_key@", s)
+
+        s = "ReDim ENTRY_NAME_A(%d)\n" % (len(entryInfoList))
+        for i in range(0, len(entryInfoList)):
+            s += "ENTRY_NAME_A(%d) = \"%s\"\n" % (i, entryInfoList[i][0])
+        buf = buf.replace("@entry_name_a@", s)
+
+        s = "ReDim ENTRY_VTYPE_A(%d)\n" % (len(entryInfoList))
+        for i in range(0, len(entryInfoList)):
+            s += "ENTRY_VTYPE_A(%d) = \"%s\"\n" % (i, entryInfoList[i][1])
+        buf = buf.replace("@entry_vtype_a@", s)
+
+        s = "ReDim ENTRY_PROTO_A(%d)\n" % (len(entryInfoList))
+        for i in range(0, len(entryInfoList)):
+            s += "ENTRY_PROTO_A(%d) = \"%s\"\n" % (i, entryInfoList[i][2])
+        buf = buf.replace("@entry_proto_a@", s)
+
+        s = "ReDim ENTRY_PORT_A(%d)\n" % (len(entryInfoList))
+        for i in range(0, len(entryInfoList)):
+            s += "ENTRY_PORT_A(%d) = \"%s\"\n" % (i, entryInfoList[i][3])
+        buf = buf.replace("@entry_port_a@", s)
+
+        return ("client-script.vbs", buf)
+
 
 class _VirtualBridge:
 

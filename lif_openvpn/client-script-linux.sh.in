@@ -1,0 +1,594 @@
+#!/bin/bash
+
+###############################################################################
+# Copied from https://github.com/ingydotnet/json-bash
+#
+
+JSON.load() {
+  unset JSON__cache
+  case $# in
+    0) (set -o pipefail; JSON.lex | JSON.parse) ;;
+    1) JSON__cache="$(set -o pipefail; echo -E "$1" | JSON.lex | JSON.parse)"
+      [[ -n $JSON__cache ]] && JSON__cache+=$'\n'
+      ;;
+    2) printf -v "$2" "%s" "$(echo -E "$1" | JSON.lex | JSON.parse)"
+      [[ -n ${!2} ]] && printf -v "$2" "%s\n" "${!2}"
+      ;;
+    *) JSON.die 'Usage: JSON.load [<json-string> [<tree-var>]]' ;;
+  esac
+  :
+}
+
+JSON.dump() {
+  JSON.die 'JSON.dump not yet implemented.'
+  set -o pipefail
+  case $# in
+    0)
+      JSON.normalize | sort | JSON.emit-json
+      ;;
+    1)
+      if [[ $1 == '-' ]]; then
+        echo "$JSON__cache" | JSON.dump-json
+      else
+        echo ${!1} | JSON.dump-json
+      fi
+      ;;
+    *) JSON.die 'Usage: JSON.dump [<tree-var>]' ;;
+  esac
+}
+
+JSON.get() {
+  local flag=""
+  if [[ $# -gt 0 && $1 =~ ^-([asnbz])$ ]]; then
+    flag="${BASH_REMATCH[1]}"
+    shift
+  fi
+  case $# in
+    1)
+      grep -Em1 "^$1	" | cut -f2 |
+          JSON.apply-get-flag "$flag"
+      ;;
+    2)
+      if [[ $2 == '-' ]]; then
+        echo "$JSON__cache" |
+          grep -Em1 "^$1	" |
+          cut -f2 |
+          JSON.apply-get-flag "$flag"
+      else
+        echo "${!2}" |
+          grep -Em1 "^$1	" |
+          cut -f2 |
+          JSON.apply-get-flag "$flag"
+      fi
+      ;;
+    *) JSON.die 'Usage: JSON.get [-a|-s|-n|-b|-z] <key-path> [<tree-var>]' ;;
+  esac
+}
+
+JSON.keys() {
+  if [[ $# -gt 2 ]]; then
+    JSON.die 'Usage: JSON.keys <key-path> [<tree-var>]'
+  fi
+  JSON.object "$@" |
+    cut -f1 |
+    sed "s/^\///; s/\/.*//" |
+    sort -u
+}
+
+JSON.object() {
+  case $# in
+    1)
+      JSON._object "$@"
+      ;;
+    2)
+      if [ "$2" == '-' ]; then
+        echo "$JSON__cache" | JSON._object "$@"
+      else
+        echo "${!2}" | JSON._object "$@"
+      fi
+      ;;
+    *)
+    JSON.die 'Usage: JSON.object <key-path> [<tree-var>]' ;;
+  esac
+}
+
+JSON._object() {
+  local key=$1
+  if [[ -n $key && $key != "/" ]]; then
+    key=${key//\//\\/}
+    sed -n "s/^$key//p"
+  else
+    cat
+  fi
+}
+
+JSON.put() {
+  set -o pipefail
+  if [[ $# -gt 0 && $1 =~ ^-([snbz])$ ]]; then
+    local flag="${BASH_REMATCH[1]}"
+    shift
+  fi
+  case $# in
+    2)
+      JSON.del "$1"
+      printf "$1\t$2\n"
+      ;;
+    3)
+      if [[ $1 == '-' ]]; then
+        echo "$JSON__cache" | JSON.del "$1"
+        printf "$1\t$2\n"
+      else
+        echo ${!3} | JSON.del "$1"
+        printf "$1\t$2\n"
+      fi
+      ;;
+    *) JSON.die 'Usage: JSON.put [-s|-n|-b|-z] <key-path> <new-value> [<tree-var>]' ;;
+  esac
+}
+
+JSON.del() {
+  set -o pipefail
+  case $# in
+    1)
+      grep -Ev "$1	"
+      ;;
+    2)
+      if [[ $1 == '-' ]]; then
+        echo "$JSON__cache" | grep -Ev "$1	"
+      else
+        echo ${!1} | grep -Ev "$1	"
+      fi
+      ;;
+    *) JSON.die 'Usage: JSON.get [-s|-n|-b|-z] <key-path> [<tree-var>]' ;;
+  esac
+}
+
+JSON.cache() {
+  case $# in
+    0)
+      echo -n "$JSON__cache"
+      ;;
+    1)
+      printf -v "$1" "%s" "$JSON__cache"
+      ;;
+    *) JSON.die 'Usage: JSON.cache [<tree-var>]' ;;
+  esac
+}
+
+#-----------------------------------------------------------------------------
+JSON_CHR='[^"\\[:cntrl:]]'
+JSON_ESC='(\\["\\/bfnrt]|\\u[0-9a-fA-F]{4})'
+JSON_STR="\"($JSON_CHR|$JSON_ESC)*\""
+JSON_NUM='-?(0|[1-9][0-9]*)([.][0-9]+)?([eE][+-]?[0-9]+)?'
+JSON_BOOL='null|false|true'
+JSON_SPACE='[[:space:]]+'
+JSON_PUNCT='[][{}:,]'
+JSON_OTHER='.'
+JSON_SCALAR="^($JSON_STR|$JSON_NUM|$JSON_BOOL)$"
+JSON_TOKEN="$JSON_STR|$JSON_NUM|$JSON_BOOL|$JSON_PUNCT|$JSON_SPACE|$JSON_OTHER"
+
+JSON.lex() {
+  local GREP_COLORS GREP_COLOR
+  \grep -Eo "$JSON_TOKEN" | \grep -Ev "^$JSON_SPACE$"
+}
+
+JSON.parse() {
+  read -r JSON_token
+  case "$JSON_token" in
+    '{') JSON.parse-object '' ;;
+    '[') JSON.parse-array '' ;;
+    *) JSON.parse-error "'{' or '['";;
+  esac
+}
+
+JSON.parse-object() {
+  read -r JSON_token
+  while [[ $JSON_token != '}' ]]; do
+    [[ $JSON_token =~ ^\" ]] || JSON.parse-error STRING   #"
+    local key="${JSON_token:1:$((${#JSON_token}-2))}"
+    read -r JSON_token
+    [[ $JSON_token == ':' ]] || JSON.parse-error "':'"
+    read -r JSON_token
+    JSON.parse-value "$1/$key"
+    read -r JSON_token
+    if [[ $JSON_token == ',' ]]; then
+      read -r JSON_token
+    else
+      [[ $JSON_token == '}' ]] || JSON.parse-error "'}'"
+    fi
+  done
+}
+
+JSON.parse-array() {
+  local index=0
+  read -r JSON_token
+  while [[ $JSON_token != ']' ]]; do
+    JSON.parse-value "$1/$((index++))"
+    read -r JSON_token
+    if [[ $JSON_token == ',' ]]; then
+      read -r JSON_token
+    else
+      [[ $JSON_token == ']' ]] || JSON.parse-error "']'"
+    fi
+  done
+}
+
+JSON.parse-value() {
+  case "$JSON_token" in
+    '[') JSON.parse-array "$1";;
+    '{') JSON.parse-object "$1";;
+    *)
+      [[ $JSON_token =~ $JSON_SCALAR ]] ||
+        JSON.parse-error
+      printf "%s\t%s\n" "$1" "$JSON_token"
+  esac
+}
+
+JSON.parse-error() {
+  msg="JSON.parse error. Unexpected token: '$JSON_token'."
+  [[ -n $1 ]] && msg+=" Expected: $1."
+  JSON.die "$msg"
+}
+
+JSON.apply-get-flag() {
+  local value
+  read -r value
+  # For now assume null can show up instead of string or number
+  if [[ $value == null ]]; then
+    echo ''
+    return 0
+  fi
+  case $1 in
+    a)
+      [[ $value =~ ^$JSON_STR$ ]] && {
+        value="${value:1:$((${#value}-2))}"
+      }
+      ;;
+    s)
+      [[ $value =~ ^$JSON_STR$ ]] || {
+        echo "JSON.get -s flag used but '$value' is not a string" >&2
+        return 1
+      }
+      value="${value:1:$((${#value}-2))}"
+      ;;
+    n)
+      [[ $value =~ ^$JSON_NUM$ ]] || {
+        echo "JSON.get -n flag used but '$value' is not a number" >&2
+        return 1
+      }
+      ;;
+    b)
+      [[ $value =~ ^$JSON_BOOL$ ]] || {
+        echo "JSON.get -b flag used but '$value' is not a boolean" >&2
+        return 1
+      }
+      value=$([ $value == true ] && echo "0" || echo "1")
+      ;;
+    z)
+      [[ $value =~ ^$JSON_NULL$ ]] || {
+        echo "JSON.get -z flag used but '$value' is not a null" >&2
+        return 1
+      }
+      value=''
+      ;;
+    *) ;;
+  esac
+  echo "$value"
+  return 0
+}
+
+JSON.assert-cache() {
+  [[ -n $JSON__cache ]] || JSON.die 'JSON.get error: no cached data.'
+}
+
+JSON.die() {
+  echo "$*" >&2
+  exit 1
+}
+
+###############################################################################
+
+g_openvpn_client() {
+    local OVPN_DIR=/etc/openvpn/fpemud-vpnc
+    local CA_CERT_FILE=${OVPN_DIR}/ca-cert.pem
+    local CERT_FILE=${OVPN_DIR}/cert.pem
+    local KEY_FILE=${OVPN_DIR}/key.pem
+    local AUTH_FILE=${OVPN_DIR}/auth.pw
+    local SCRIPT_FILE=${OVPN_DIR}/hostname2username.sh
+    local CFG=${OVPN_DIR}/config.ovpn
+
+    local hostname=$1
+    local proto=$2
+    local port=$3
+
+    if [[ ! -d ${OVPN_DIR} ]] ; then
+        mkdir -p ${OVPN_DIR}
+    fi
+
+    echo "$CA_CERT" > $CA_CERT_FILE
+    chmod 644 $CA_CERT_FILE
+
+    echo "$CERT" > $CERT_FILE
+    chmod 644 $CERT_FILE
+
+    echo "$KEY" > $KEY_FILE
+    chmod 600 $KEY_FILE
+
+    echo "$(hostname)" > $AUTH_FILE
+    echo "none" >> $AUTH_FILE
+    chmod 600 $AUTH_FILE
+
+    echo "client" > $CFG
+    echo "" >> $CFG
+    echo "remote $hostname $port" >> $CFG
+    echo "proto $proto" >> $CFG
+    echo "" >> $CFG
+    echo "dev tap" >> $CFG
+    echo "" >> $CFG
+    echo "ca $CA_CERT_FILE" >> $CFG
+    echo "cert $CERT_FILE" >> $CFG
+    echo "key $KEY_FILE" >> $CFG
+    echo "" >> $CFG
+    echo "auth-user-pass $AUTH_FILE" >> $CFG
+    echo "#auth-nocache" >> $CFG
+    echo "" >> $CFG
+    echo "persist-key" >> $CFG
+    echo "persist-tun" >> $CFG
+    echo "" >> $CFG
+    echo "user nobody" >> $CFG
+    echo "group nobody" >> $CFG
+    echo "" >> $CFG
+    echo "max-routes 1024" >> $CFG
+    chmod 644 $CFG
+
+    echo "#!/bin/sh" > $SCRIPT_FILE
+    echo "" >> $SCRIPT_FILE
+    echo "# use hostname as username" >> $SCRIPT_FILE
+    echo "sed -i \"1s/.*/\\$(hostname)/\" $AUTH_FILE" >> $SCRIPT_FILE
+    chmod 700 $SCRIPT_FILE
+
+    echo "OpenVPN connection created at ${OVPN_DIR}."
+}
+
+g_openvpn_networkmanager_ovpn() {
+    local CONN_DIR=/etc/NetworkManager/system-connections
+    local CONN_FILE=$CONN_DIR/vpn\(FpemudVpn\)
+    local CFG=/etc/openvpn/fpemud-vpnc/config.ovpn
+
+    echo "[connection]" > $CONN_FILE
+    echo "id=vpn(FpemudVpn)" >> $CONN_FILE
+    echo "uuid=$(gen_uuid)" >> $CONN_FILE
+    echo "type=vpn" >> $CONN_FILE
+    echo "" >> $CONN_FILE
+    echo "[vpn]" >> $CONN_FILE
+    echo "service-type=org.freedesktop.NetworkManager.ovpn" >> $CONN_FILE
+    echo "cfg-file=$CFG" >> $CONN_FILE
+    echo "" >> $CONN_FILE
+    echo "[ipv4]" >> $CONN_FILE
+    echo "method=auto" >> $CONN_FILE
+    echo "never-default=true" >> $CONN_FILE
+    echo "" >> $CONN_FILE
+    echo "[ipv6]" >> $CONN_FILE
+    echo "method=ignore" >> $CONN_FILE
+    chmod 600 $CONN_FILE
+
+    echo "NetworkManager ovpn connection created at ${CONN_FILE}."
+}
+
+g_openvpn_networkmanager() {
+    local CONN_DIR=/etc/NetworkManager/system-connections
+    local VPN_DIR=$CONN_DIR/fpemud-vpn
+    local CA_CERT_FILE=$VPN_DIR/ca-cert.pem
+    local CERT_FILE=$VPN_DIR/cert.pem
+    local KEY_FILE=$VPN_DIR/key.pem
+    local SCRIPT_FILE=$VPN_DIR/hostname2username.sh
+    local CONN_FILE=$CONN_DIR/vpn\(FpemudVpn\)
+
+    local hostname=$1
+    local proto=$2
+    local port=$3
+
+    if [[ ! -d $VPN_DIR ]] ; then
+        mkdir -p $VPN_DIR
+        chmod 700 $VPN_DIR
+    fi
+
+    echo "$CA_CERT" > $CA_CERT_FILE
+    chmod 600 $CA_CERT_FILE
+
+    echo "$CERT" > $CERT_FILE
+    chmod 600 $CERT_FILE
+
+    echo "$KEY" > $KEY_FILE
+    chmod 600 $KEY_FILE
+
+    echo "[connection]" > $CONN_FILE
+    echo "id=vpn(FpemudVpn)" >> $CONN_FILE
+    echo "uuid=$(gen_uuid)" >> $CONN_FILE
+    echo "type=vpn" >> $CONN_FILE
+    echo "" >> $CONN_FILE
+    echo "[vpn]" >> $CONN_FILE
+    echo "service-type=org.freedesktop.NetworkManager.openvpn" >> $CONN_FILE
+    echo "remote=$hostname" >> $CONN_FILE
+    if [ "$proto" == "tcp" ] ; then
+        echo "proto-tcp=yes" >> $CONN_FILE
+    fi
+    echo "port=$port" >> $CONN_FILE
+    echo "connection-type=password-tls" >> $CONN_FILE
+    echo "username=$(hostname)" >> $CONN_FILE
+    echo "password-flags=0" >> $CONN_FILE
+    echo "dev-type=tap" >> $CONN_FILE
+    echo "dev=vpnc" >> $CONN_FILE
+    echo "ca=$CA_CERT_FILE" >> $CONN_FILE
+    echo "cert=$CERT_FILE" >> $CONN_FILE
+    echo "key=$KEY_FILE" >> $CONN_FILE
+    echo "cert-pass-flags=0" >> $CONN_FILE
+    echo "#remote-cert-tls=server" >> $CONN_FILE
+    echo "" >> $CONN_FILE
+    echo "[vpn-secrets]" >> $CONN_FILE
+    echo "password=none" >> $CONN_FILE                    # NetworkManager force a password here
+    echo "" >> $CONN_FILE
+    echo "[ipv4]" >> $CONN_FILE
+    echo "method=auto" >> $CONN_FILE
+    echo "never-default=true" >> $CONN_FILE
+    echo "" >> $CONN_FILE
+    echo "[ipv6]" >> $CONN_FILE
+    echo "method=ignore" >> $CONN_FILE
+    chmod 600 $CONN_FILE
+
+    echo "#!/bin/sh" > $SCRIPT_FILE
+    echo "" >> $SCRIPT_FILE
+    echo "# use hostname as username" >> $SCRIPT_FILE
+    echo "sed -i \"s/username=.*/username=\\$(hostname)/g\" ../vpn\\(FpemudVpn\\)" >> $SCRIPT_FILE
+    chmod 700 $SCRIPT_FILE
+
+    echo "networkmanager openvpn connection created at ${CONN_FILE}."
+}
+
+index_of() {
+    declare -a arr=("${!1}")
+    local elem=$2
+
+    local i=0
+    for str in "${arr[@]}"; do
+        if [ "$str" = "$elem" ]; then
+            echo $i
+            return
+        else
+            ((i++))
+        fi
+    done
+    echo "-1"
+}
+
+gen_uuid() {
+    # a simple and dirty uuid generator
+    t=
+    t=${t}$(printf "%04x" $RANDOM)
+    t=${t}$(printf "%04x" $RANDOM)
+    t=${t}-
+    t=${t}$(printf "%04x" $RANDOM)
+    t=${t}-
+    t=${t}$(printf "%04x" $RANDOM)
+    t=${t}-
+    t=${t}$(printf "%04x" $RANDOM)
+    t=${t}-
+    t=${t}$(printf "%04x" $RANDOM)
+    t=${t}$(printf "%04x" $RANDOM)
+    t=${t}$(printf "%04x" $RANDOM)
+    echo $t
+}
+
+usage() {
+    echo "$0 -l|--list-entries"
+    echo "$0 -e <entry> -c <client-program>"
+    return
+}
+
+HOSTNAME="@hostname@"
+CA_CERT="@ca_cert@"
+CERT="@client_cert@"
+KEY="@client_key@"
+JSON.load '@entry_data@'
+
+argtemp=`getopt -o lc:e: -l list-entries -n "$0" -- "$@"`
+if [ $? != 0 ] ; then exit $? ; fi
+eval set -- "$argtemp"
+
+cmd=""
+client="networkmanager-ovpn"
+entry_index=""
+while true ; do
+    case "$1" in
+        -l|--list-entries)
+            if [ "$cmd" != "" ] ; then
+                echo "-l or --list-entries is for exclusive usage."
+                exit 1
+            fi
+            cmd="list"
+            shift
+            ;;
+        -e|--entry)
+            if [ "$cmd" == "list" ] ; then
+                echo "-l or --list-entries is for exclusive usage."
+                exit 1
+            fi
+            cmd="exec"
+            entry_index=$2
+            shift 2
+            ;;
+        -c|--client-program)
+            if [ "$cmd" == "list" ] ; then
+                echo "-l or --list-entries is for exclusive usage."
+                exit 1
+            fi
+            cmd="exec"
+            client="$2"
+            shift 2
+            ;;
+        --)
+            shift ; break ;;
+        *)
+            echo $1
+            usage ; exit 1 ;;
+    esac
+done
+
+if [ "$cmd" = "list" ] ; then
+    for i in $(JSON.keys / -) ; do
+        echo $i
+    done
+    exit 0
+fi
+
+if [ "$entry_index" = "" ] ; then
+    echo "-e or --entry must be specified."
+    exit 1
+fi
+
+eval vtype=$(JSON.get /$entry_index/0 -)
+if [ "$vtype" = "" ] ; then
+    echo "The specified entry does not exist."
+    exit 1
+fi
+
+if [ "$vtype" = "openvpn" ] ; then
+  case $client in
+      "client")
+          eval a1=$(JSON.get /$entry_index/1 -)
+          eval a1=$(JSON.get /$entry_index/2 -)
+          g_openvpn_client "$HOSTNAME" $a1 $a2
+          ;;
+      "networkmanager")
+          eval a1=$(JSON.get /$entry_index/1 -)
+          eval a1=$(JSON.get /$entry_index/2 -)
+          g_openvpn_networkmanager "$HOSTNAME" $a1 $a2
+          ;;
+      "networkmanager-ovpn")
+          eval a1=$(JSON.get /$entry_index/1 -)
+          eval a1=$(JSON.get /$entry_index/2 -)
+          g_openvpn_client "$HOSTNAME" $a1 $a2
+          g_openvpn_networkmanager_ovpn
+          ;;
+      *)
+          echo "Valid client programs are client, networkmanager and networkmanager-ovpn."
+          exit 1
+  esac
+  exit 0
+fi
+
+if [ "$vtype" = "n2n" ] ; then
+  case $client in
+      "networkmanager")
+          eval a1=$(JSON.get /$entry_index/1 -)
+          g_n2_networkmanager "$HOSTNAME" $a1
+          ;;
+      *)
+          echo "Valid client programs are networkmanager."
+          exit 1
+  esac
+  exit 0
+fi
+
+echo "Invalid vtype, strange?!"
+exit 1

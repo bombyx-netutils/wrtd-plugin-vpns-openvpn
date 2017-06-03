@@ -1,0 +1,84 @@
+Dim HOSTNAME
+Dim CA_CERT
+Dim CLIENT_CERT
+Dim CLIENT_KEY
+Dim ENTRY_NAME_A()
+Dim ENTRY_VTYPE_A()
+Dim ENTRY_PROTO_A()
+Dim ENTRY_PORT_A()
+Dim OPENVPN_PATH
+Dim CA_CERT_FILE
+Dim CERT_FILE
+Dim KEY_FILE
+Dim CFG_FILE
+Dim oShell
+Dim oFso
+Dim of
+Dim msg
+
+
+HOSTNAME = "@hostname@"
+
+@ca_cert@
+@client_cert@
+@client_key@
+
+@entry_name_a@
+@entry_vtype_a@
+@entry_proto_a@
+@entry_port_a@
+
+OPENVPN_PATH = "C:\Program Files\OpenVPN"
+OPENVPN_CFG_PATH = "C:\Program Files\OpenVPN\config"
+CA_CERT_FILE = "C:\Program Files\OpenVPN\config\fpemud-vpn-ca.crt"
+CERT_FILE = "C:\Program Files\OpenVPN\config\fpemud-vpn.crt"
+KEY_FILE = "C:\Program Files\OpenVPN\config\fpemud-vpn.key"
+CFG_FILE = "C:\Program Files\OpenVPN\config\fpemud-vpn.ovpn"
+
+Set oShell = CreateObject("WScript.Shell")
+Set oFso = CreateObject("Scripting.FileSystemObject")
+
+If (Not oFso.FolderExists(OPENVPN_PATH)) Then
+  Wscript.Echo("Please install OpenVPN in directory """ & OPENVPN_PATH & """ first.")
+  Wscript.Quit 1
+End If
+
+Set of = oFso.CreateTextFile(CA_CERT_FILE, True)
+of.Write(CA_CERT)
+of.Close()
+
+Set of = oFso.CreateTextFile(CERT_FILE, True)
+of.Write(CERT)
+of.Close()
+
+Set of = oFso.CreateTextFile(KEY_FILE, True)
+of.Write(KEY)
+of.Close()
+
+Set of = oFso.CreateTextFile(CFG_FILE, True)
+of.Write("client" & vbCrLf)
+of.Write(vbCrLf)
+of.Write("remote fpemud.ddns.net 1194" & vbCrLf)
+of.Write("proto udp" & vbCrLf)
+of.Write("resolv-retry infinite" & vbCrLf)
+of.Write(vbCrLf)
+of.Write("dev tap" & vbCrLf)
+of.Write(vbCrLf)
+of.Write("ca fpemud-vpn-ca.crt" & vbCrLf)
+of.Write("cert fpemud-vpn.crt" & vbCrLf)
+of.Write("key fpemud-vpn.key" & vbCrLf)
+of.Write(vbCrLf)
+of.Write("persist-key" & vbCrLf)
+of.Write("persist-tun" & vbCrLf)
+of.Close()
+
+msg = "OpenVPN client configuration file created at """ & CFG_FILE & """."
+For Each fn in oFso.GetFolder(OPENVPN_CFG_PATH).Files
+  If fn.Path <> CFG_FILE Then
+    If LCase(oFso.GetExtensionName(fn.Name)) = "ovpn" Then
+      msg = msg & vbCrLf & "WARNING: Multiple OpenVPN configuration file exists, please confirm."
+      Exit For
+    End If
+  End If
+Next
+Wscript.Echo(msg)
