@@ -13,7 +13,6 @@ import netifaces
 import ipaddress
 import threading
 import subprocess
-from collections import OrderedDict
 from OpenSSL import crypto
 from gi.repository import GLib
 
@@ -100,12 +99,6 @@ class _PluginObject:
         pass
 
     def generate_client_script(self, ostype):
-        # convert entry info list to json object
-        jsonObj = OrderedDict()
-        jsonObj["proto"] = self.proto
-        jsonObj["port"] = self.port
-        jsonStr = json.dumps(jsonObj)
-
         # get CA certificate and private key
         caCert, caKey = _Util.loadCertAndKey(self.caCertFile, self.caKeyFile)
 
@@ -116,15 +109,14 @@ class _PluginObject:
         caStr = crypto.dump_certificate(crypto.FILETYPE_PEM, caCert).decode("ascii")
         certStr = crypto.dump_certificate(crypto.FILETYPE_PEM, cert).decode("ascii")
         keyStr = crypto.dump_privatekey(crypto.FILETYPE_PEM, k).decode("ascii")
-
         if ostype == "linux":
-            return self.__createLinuxClientScript(caStr, certStr, keyStr, jsonStr)
+            return self.__createLinuxClientScript(caStr, certStr, keyStr)
         elif ostype == "win32":
-            return self.__createWin32ClientScript(caStr, certStr, keyStr, jsonStr)
+            return self.__createWin32ClientScript(caStr, certStr, keyStr)
         else:
             assert False
 
-    def __createLinuxClientScript(self, caStr, certStr, keyStr, entryData):
+    def __createLinuxClientScript(self, caStr, certStr, keyStr):
         selfdir = os.path.dirname(os.path.realpath(__file__))
 
         buf = ""
@@ -135,7 +127,8 @@ class _PluginObject:
         buf = buf.replace("@ca_cert@", caStr)
         buf = buf.replace("@client_cert@", certStr)
         buf = buf.replace("@client_key@", keyStr)
-        buf = buf.replace("@entry_data@", entryData)
+        buf = buf.replace("@proto@", self.proto)
+        buf = buf.replace("@port@", self.port)
 
         return ("client-script.sh", buf)
 
