@@ -32,11 +32,12 @@ def get_plugin(name):
 
 class _PluginObject:
 
-    def init2(self, instanceName, cfg, tmpDir, varDir):
+    def init2(self, instanceName, cfg, tmpDir, varDir, firewallAllowFunc):
         self.instanceName = instanceName
         self.cfg = cfg
         self.tmpDir = tmpDir
         self.varDir = varDir
+        self.firewallAllowFunc = firewallAllowFunc
         self.logger = logging.getLogger(self.__module__ + "." + self.__class__.__name__)
 
         self.proto = self.cfg.get("proto", "udp")
@@ -390,6 +391,8 @@ class _VirtualBridge:
         cmd += "--writepid %s/openvpn.pid " % (self.pObj.tmpDir)
         cmd += "> %s/openvpn.out 2>&1" % (self.pObj.tmpDir)
         self.openvpnProc = subprocess.Popen(cmd, shell=True, universal_newlines=True)
+
+        self.pObj.firewallAllowFunc("tcp dport %d" % (self.pObj.port))
 
     def _stopOpenvpnServer(self):
         if self.openvpnProc is not None:
