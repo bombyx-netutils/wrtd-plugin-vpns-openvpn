@@ -160,6 +160,11 @@ KEY="@client_key@"
 PROTO="@proto@"
 PORT="@port@"
 
+if [ "$(id -u)" != "0"] ; then
+    echo "Superuser access is required."
+    exit 0
+fi
+
 if [ "$1" == "help" ] ; then
     usage
     exit 0
