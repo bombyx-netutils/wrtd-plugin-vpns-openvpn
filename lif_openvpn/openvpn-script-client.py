@@ -19,5 +19,5 @@ data["ip"] = os.environ['ifconfig_pool_remote_ip']
 data["hostname"] = os.environ['username']
 
 sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
-sock.sendto(serverFile, json.dumps(data).encode("utf-8"))
+sock.sendto(json.dumps(data).encode("utf-8"), serverFile)
 sock.close()
