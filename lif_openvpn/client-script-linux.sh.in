@@ -1,17 +1,13 @@
 #!/bin/bash
 
 g_openvpn_client() {
-    local OVPN_DIR=/etc/openvpn/fpemud-vpnc
+    local OVPN_DIR=/etc/openvpn/wrtd-${INSTANCE}-vpnc
     local CA_CERT_FILE=${OVPN_DIR}/ca-cert.pem
     local CERT_FILE=${OVPN_DIR}/cert.pem
     local KEY_FILE=${OVPN_DIR}/key.pem
     local AUTH_FILE=${OVPN_DIR}/auth.pw
     local SCRIPT_FILE=${OVPN_DIR}/hostname2username.sh
     local CFG=${OVPN_DIR}/config.ovpn
-
-    local hostname=$1
-    local proto=$2
-    local port=$3
 
     if [[ ! -d ${OVPN_DIR} ]] ; then
         mkdir -p ${OVPN_DIR}
@@ -32,8 +28,8 @@ g_openvpn_client() {
 
     echo "client" > $CFG
     echo "" >> $CFG
-    echo "remote $hostname $port" >> $CFG
-    echo "proto $proto" >> $CFG
+    echo "remote $HOSTNAME $PORT" >> $CFG
+    echo "proto $PROTO" >> $CFG
     echo "" >> $CFG
     echo "dev tap" >> $CFG
     echo "" >> $CFG
@@ -56,49 +52,20 @@ g_openvpn_client() {
     echo "#!/bin/sh" > $SCRIPT_FILE
     echo "" >> $SCRIPT_FILE
     echo "# use hostname as username" >> $SCRIPT_FILE
-    echo "sed -i \"1s/.*/\\$(hostname)/\" $AUTH_FILE" >> $SCRIPT_FILE
+    echo "sed -i \"1s/.*/\$(hostname)/\" $AUTH_FILE" >> $SCRIPT_FILE
     chmod 700 $SCRIPT_FILE
 
     echo "OpenVPN connection created at ${OVPN_DIR}."
 }
 
-g_openvpn_networkmanager_ovpn() {
-    local CONN_DIR=/etc/NetworkManager/system-connections
-    local CONN_FILE=$CONN_DIR/vpn\(FpemudVpn\)
-    local CFG=/etc/openvpn/fpemud-vpnc/config.ovpn
-
-    echo "[connection]" > $CONN_FILE
-    echo "id=vpn(FpemudVpn)" >> $CONN_FILE
-    echo "uuid=$(gen_uuid)" >> $CONN_FILE
-    echo "type=vpn" >> $CONN_FILE
-    echo "" >> $CONN_FILE
-    echo "[vpn]" >> $CONN_FILE
-    echo "service-type=org.freedesktop.NetworkManager.ovpn" >> $CONN_FILE
-    echo "cfg-file=$CFG" >> $CONN_FILE
-    echo "" >> $CONN_FILE
-    echo "[ipv4]" >> $CONN_FILE
-    echo "method=auto" >> $CONN_FILE
-    echo "never-default=true" >> $CONN_FILE
-    echo "" >> $CONN_FILE
-    echo "[ipv6]" >> $CONN_FILE
-    echo "method=ignore" >> $CONN_FILE
-    chmod 600 $CONN_FILE
-
-    echo "NetworkManager ovpn connection created at ${CONN_FILE}."
-}
-
 g_openvpn_networkmanager() {
     local CONN_DIR=/etc/NetworkManager/system-connections
-    local VPN_DIR=$CONN_DIR/fpemud-vpn
+    local VPN_DIR=$CONN_DIR/wrtd-${INSTANCE}-vpn
     local CA_CERT_FILE=$VPN_DIR/ca-cert.pem
     local CERT_FILE=$VPN_DIR/cert.pem
     local KEY_FILE=$VPN_DIR/key.pem
     local SCRIPT_FILE=$VPN_DIR/hostname2username.sh
-    local CONN_FILE=$CONN_DIR/vpn\(FpemudVpn\)
-
-    local hostname=$1
-    local proto=$2
-    local port=$3
+    local CONN_FILE=$CONN_DIR/vpn\(wrtd-${INSTANCE}-vpn\)
 
     if [[ ! -d $VPN_DIR ]] ; then
         mkdir -p $VPN_DIR
@@ -115,7 +82,7 @@ g_openvpn_networkmanager() {
     chmod 600 $KEY_FILE
 
     echo "[connection]" > $CONN_FILE
-    echo "id=vpn(FpemudVpn)" >> $CONN_FILE
+    echo "id=vpn(wrtd-${INSTANCE}-vpn)" >> $CONN_FILE
     echo "uuid=$(gen_uuid)" >> $CONN_FILE
     echo "type=vpn" >> $CONN_FILE
     echo "" >> $CONN_FILE
@@ -125,7 +92,7 @@ g_openvpn_networkmanager() {
     if [ "$proto" == "tcp" ] ; then
         echo "proto-tcp=yes" >> $CONN_FILE
     fi
-    echo "port=$port" >> $CONN_FILE
+    echo "port=$PORT" >> $CONN_FILE
     echo "connection-type=password-tls" >> $CONN_FILE
     echo "username=$(hostname)" >> $CONN_FILE
     echo "password-flags=0" >> $CONN_FILE
@@ -151,26 +118,14 @@ g_openvpn_networkmanager() {
     echo "#!/bin/sh" > $SCRIPT_FILE
     echo "" >> $SCRIPT_FILE
     echo "# use hostname as username" >> $SCRIPT_FILE
-    echo "sed -i \"s/username=.*/username=\\$(hostname)/g\" ../vpn\\(FpemudVpn\\)" >> $SCRIPT_FILE
+    echo "sed -i \"s/username=.*/username=\$(hostname)/g\" $CONN_FILE" >> $SCRIPT_FILE
     chmod 700 $SCRIPT_FILE
 
-    echo "networkmanager openvpn connection created at ${CONN_FILE}."
+    echo "NetworkManager openvpn connection created at ${CONN_FILE}."
 }
 
-index_of() {
-    declare -a arr=("${!1}")
-    local elem=$2
-
-    local i=0
-    for str in "${arr[@]}"; do
-        if [ "$str" = "$elem" ]; then
-            echo $i
-            return
-        else
-            ((i++))
-        fi
-    done
-    echo "-1"
+g_openvpn_wrtd() {
+    echo "not supported yet."
 }
 
 gen_uuid() {
@@ -192,11 +147,12 @@ gen_uuid() {
 }
 
 usage() {
-    echo "$0 -l|--list-entries"
-    echo "$0 -e <entry> -c <client-program>"
-    return
+    echo "Usage:"
+    echo "  $0 help"
+    echo "  $0 <client-program>    options are \"openvpn\", \"networkmanager\" and \"wrtd-wvpn\""
 }
 
+INSTANCE="@instance@"
 HOSTNAME="@hostname@"
 CA_CERT="@ca_cert@"
 CERT="@client_cert@"
@@ -204,104 +160,25 @@ KEY="@client_key@"
 PROTO="@proto@"
 PORT="@port@"
 
-argtemp=`getopt -o lc:e: -l list-entries -n "$0" -- "$@"`
-if [ $? != 0 ] ; then exit $? ; fi
-eval set -- "$argtemp"
-
-cmd=""
-client="networkmanager-ovpn"
-entry_index=""
-while true ; do
-    case "$1" in
-        -l|--list-entries)
-            if [ "$cmd" != "" ] ; then
-                echo "-l or --list-entries is for exclusive usage."
-                exit 1
-            fi
-            cmd="list"
-            shift
-            ;;
-        -e|--entry)
-            if [ "$cmd" == "list" ] ; then
-                echo "-l or --list-entries is for exclusive usage."
-                exit 1
-            fi
-            cmd="exec"
-            entry_index=$2
-            shift 2
-            ;;
-        -c|--client-program)
-            if [ "$cmd" == "list" ] ; then
-                echo "-l or --list-entries is for exclusive usage."
-                exit 1
-            fi
-            cmd="exec"
-            client="$2"
-            shift 2
-            ;;
-        --)
-            shift ; break ;;
-        *)
-            echo $1
-            usage ; exit 1 ;;
-    esac
-done
-
-if [ "$cmd" = "list" ] ; then
-    for i in $(JSON.keys / -) ; do
-        echo $i
-    done
+if [ "$1" == "help" ] ; then
+    usage
     exit 0
 fi
 
-if [ "$entry_index" = "" ] ; then
-    echo "-e or --entry must be specified."
-    exit 1
+if [ "$1" == "openvpn" ] ; then
+    g_openvpn_client
+    exit 0
 fi
 
-eval vtype=$(JSON.get /$entry_index/0 -)
-if [ "$vtype" = "" ] ; then
-    echo "The specified entry does not exist."
-    exit 1
+if [ "$1" == "networkmanager" ] ; then
+    g_openvpn_networkmanager
+    exit 0
 fi
 
-if [ "$vtype" = "openvpn" ] ; then
-  case $client in
-      "client")
-          eval a1=$(JSON.get /$entry_index/1 -)
-          eval a1=$(JSON.get /$entry_index/2 -)
-          g_openvpn_client "$HOSTNAME" $a1 $a2
-          ;;
-      "networkmanager")
-          eval a1=$(JSON.get /$entry_index/1 -)
-          eval a1=$(JSON.get /$entry_index/2 -)
-          g_openvpn_networkmanager "$HOSTNAME" $a1 $a2
-          ;;
-      "networkmanager-ovpn")
-          eval a1=$(JSON.get /$entry_index/1 -)
-          eval a1=$(JSON.get /$entry_index/2 -)
-          g_openvpn_client "$HOSTNAME" $a1 $a2
-          g_openvpn_networkmanager_ovpn
-          ;;
-      *)
-          echo "Valid client programs are client, networkmanager and networkmanager-ovpn."
-          exit 1
-  esac
-  exit 0
+if [ "$1" == "wrtd-wvpn" ] ; then
+    g_openvpn_wrtd
+    exit 0
 fi
 
-if [ "$vtype" = "n2n" ] ; then
-  case $client in
-      "networkmanager")
-          eval a1=$(JSON.get /$entry_index/1 -)
-          g_n2_networkmanager "$HOSTNAME" $a1
-          ;;
-      *)
-          echo "Valid client programs are networkmanager."
-          exit 1
-  esac
-  exit 0
-fi
-
-echo "Invalid vtype, strange?!"
+usage
 exit 1

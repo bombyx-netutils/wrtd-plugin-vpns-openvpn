@@ -33,6 +33,7 @@ def get_plugin(name):
 class _PluginObject:
 
     def init2(self, instanceName, cfg, tmpDir, varDir):
+        self.instanceName = instanceName
         self.cfg = cfg
         self.tmpDir = tmpDir
         self.varDir = varDir
@@ -123,12 +124,13 @@ class _PluginObject:
         with open(os.path.join(selfdir, "client-script-linux.sh.in")) as f:
             buf = f.read()
 
+        buf = buf.replace("@instance@", self.instanceName)
         buf = buf.replace("@hostname@", "123.56.97.115")
         buf = buf.replace("@ca_cert@", caStr)
         buf = buf.replace("@client_cert@", certStr)
         buf = buf.replace("@client_key@", keyStr)
         buf = buf.replace("@proto@", self.proto)
-        buf = buf.replace("@port@", self.port)
+        buf = buf.replace("@port@", str(self.port))
 
         return ("client-script.sh", buf)
 
