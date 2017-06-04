@@ -2,20 +2,19 @@
 
 g_openvpn_client() {
     local OVPN_DIR=/etc/openvpn/wrtd-vpnc
+    if [ "${INSTANCE}" != "" ] ; then
+        OVPN_DIR="${OVPN_DIR}-${INSTANCE}"
+    fi
+    if [[ ! -d ${OVPN_DIR} ]] ; then
+        mkdir -p ${OVPN_DIR}
+    fi
+
     local CA_CERT_FILE=${OVPN_DIR}/ca-cert.pem
     local CERT_FILE=${OVPN_DIR}/cert.pem
     local KEY_FILE=${OVPN_DIR}/key.pem
     local AUTH_FILE=${OVPN_DIR}/auth.pw
     local SCRIPT_FILE=${OVPN_DIR}/hostname2username.sh
     local CFG=${OVPN_DIR}/config.ovpn
-
-    if [ "${INSTANCE}" != "" ] ; then
-        OVPN_DIR="${OVPN_DIR}-${INSTANCE}"
-    fi
-
-    if [[ ! -d ${OVPN_DIR} ]] ; then
-        mkdir -p ${OVPN_DIR}
-    fi
 
     echo "$CA_CERT" > $CA_CERT_FILE
     chmod 644 $CA_CERT_FILE
@@ -64,22 +63,22 @@ g_openvpn_client() {
 
 g_openvpn_networkmanager() {
     local CONN_DIR=/etc/NetworkManager/system-connections
-    local VPN_DIR=$CONN_DIR/wrtd-vpn
-    local CA_CERT_FILE=$VPN_DIR/ca-cert.pem
-    local CERT_FILE=$VPN_DIR/cert.pem
-    local KEY_FILE=$VPN_DIR/key.pem
-    local SCRIPT_FILE=$VPN_DIR/hostname2username.sh
-    local CONN_FILE=$CONN_DIR/vpn\(wrtd-vpn\)
 
+    local VPN_DIR=$CONN_DIR/wrtd-vpn
+    local CONN_FILE=$CONN_DIR/vpn\(wrtd-vpn\)
     if [ "${INSTANCE}" != "" ] ; then
         VPN_DIR=${VPN_DIR}-${INSTANCE}
         CONN_FILE=$CONN_DIR/vpn\(wrtd-vpn-${INSTANCE}\)
     fi
-
     if [[ ! -d $VPN_DIR ]] ; then
         mkdir -p $VPN_DIR
         chmod 700 $VPN_DIR
     fi
+
+    local CA_CERT_FILE=$VPN_DIR/ca-cert.pem
+    local CERT_FILE=$VPN_DIR/cert.pem
+    local KEY_FILE=$VPN_DIR/key.pem
+    local SCRIPT_FILE=$VPN_DIR/hostname2username.sh
 
     echo "$CA_CERT" > $CA_CERT_FILE
     chmod 600 $CA_CERT_FILE
@@ -173,7 +172,7 @@ KEY="@client_key@"
 PROTO="@proto@"
 PORT="@port@"
 
-if [ "$(id -u)" != "0"] ; then
+if [ "$(id -u)" != "0" ] ; then
     echo "Superuser access is required."
     exit 0
 fi
