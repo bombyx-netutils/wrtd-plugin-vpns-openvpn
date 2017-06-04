@@ -38,7 +38,7 @@ class _PluginObject:
         self.tmpDir = tmpDir
         self.varDir = varDir
         self.firewallAllowFunc = firewallAllowFunc
-        self.logger = logging.getLogger(self.__module__ + "." + self.__class__.__name__)
+        self.logger = logging.getLogger(self.__module__ + "." + self.__class__.__name__ + "." + self.instanceName)
 
         self.proto = self.cfg.get("proto", "udp")
         self.port = self.cfg.get("port", 1194)
@@ -367,9 +367,9 @@ class _VirtualBridge:
             f.write("dh %s\n" % (self.pObj.servDhFile))
             f.write("\n")
 
-            f.write("user nobody\n")
-            f.write("group nobody\n")
-            f.write("\n")
+            # f.write("user nobody\n")
+            # f.write("group nobody\n")
+            # f.write("\n")
 
             f.write("persist-key\n")
             f.write("persist-tun\n")
