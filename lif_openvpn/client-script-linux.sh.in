@@ -48,8 +48,6 @@ g_openvpn_client() {
     echo "" >> $CFG
     echo "user nobody" >> $CFG
     echo "group nobody" >> $CFG
-    echo "" >> $CFG
-    echo "max-routes 1024" >> $CFG
     chmod 644 $CFG
 
     echo "#!/bin/sh" > $SCRIPT_FILE
