@@ -125,7 +125,7 @@ class _PluginObject:
             buf = f.read()
 
         buf = buf.replace("@instance@", self.instanceName)
-        buf = buf.replace("@hostname@", "123.56.97.115")
+        buf = buf.replace("@hostname@", "123.56.97.115")            # fixme
         buf = buf.replace("@ca_cert@", caStr)
         buf = buf.replace("@client_cert@", certStr)
         buf = buf.replace("@client_key@", keyStr)
@@ -143,7 +143,8 @@ class _PluginObject:
         with open(os.path.join(selfdir, "client-script-win32.vbs.in")) as f:
             buf = f.read()
 
-        buf = buf.replace("@hostname@", "fpemud.ddns.net")
+        buf = buf.replace("@instance@", self.instanceName)
+        buf = buf.replace("@hostname@", "fpemud.ddns.net")          # fixme
 
         s = "CA_CERT = \"\"\n"
         for line in caStr.split("\n"):
