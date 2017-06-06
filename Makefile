@@ -1,6 +1,6 @@
 PACKAGE_VERSION=0.0.1
 prefix=/usr
-plugin=lif_openvpn
+plugin=vpns_openvpn
 
 all:
 

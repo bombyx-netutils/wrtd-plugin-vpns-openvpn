@@ -32,7 +32,7 @@ def get_plugin(name):
 
 class _PluginObject:
 
-    def init2(self, instanceName, cfg, tmpDir, varDir, firewallAllowFunc):
+    def init2(self, instanceName, cfg, tmpDir, varDir, bridgePrefix, l2DnsPort, clientAppearFunc, clientChangeFunc, clientDisappearFunc, firewallAllowFunc):
         self.instanceName = instanceName
         self.cfg = cfg
         self.tmpDir = tmpDir
@@ -43,7 +43,7 @@ class _PluginObject:
         self.proto = self.cfg.get("proto", "udp")
         self.port = self.cfg.get("port", 1194)
 
-        self.bridge = _VirtualBridge(self)
+        self.bridge = _VirtualBridge(self, bridgePrefix, l2DnsPort, clientAppearFunc, clientChangeFunc, clientDisappearFunc, firewallAllowFunc)
 
         self.clientCertCn = "wrtd-openvpn-client"
         self.keySize = 1024
@@ -88,17 +88,8 @@ class _PluginObject:
         self.logger.info("Stopped.")
 
     def get_bridge(self):
+        assert self.bridge.openvpnProc is not None
         return self.bridge
-
-    def interface_appear(self, bridge, ifname):
-        if ifname == self.bridge.brname:
-            self.logger.info("Interface \"%s\" managed." % (ifname))
-            return True
-        else:
-            return False
-
-    def interface_disappear(self, ifname):
-        pass
 
     def generate_client_script(self, ostype):
         # get CA certificate and private key
@@ -187,16 +178,20 @@ class _PluginObject:
 
 class _VirtualBridge:
 
-    def __init__(self, pObj):
-        self.pObj = pObj
-        self.l2DnsPort = None
-        self.clientAppearFunc = None
-        self.clientChangeFunc = None
-        self.clientDisappearFunc = None
+    def __init__(self, pObj, prefix, l2DnsPort, clientAppearFunc, clientChangeFunc, clientDisappearFunc):
+        assert prefix[1] == "255.255.255.0"
 
-        self.brname = None
-        self.dhcpRange = None
-        self.subHostIpRange = None
+        self.pObj = pObj
+        self.l2DnsPort = l2DnsPort
+        self.clientAppearFunc = clientAppearFunc
+        self.clientChangeFunc = clientChangeFunc
+        self.clientDisappearFunc = clientDisappearFunc
+
+        self.brname = "wrtd-openvpn"
+        self.brnetwork = ipaddress.IPv4Network(prefix[0] + "/" + prefix[1])
+
+        self.brip = ipaddress.IPv4Address(prefix[0]) + 1
+        self.dhcpRange = (self.brip + 1, self.brip + 49)
 
         self.openvpnProc = None
 
@@ -209,23 +204,6 @@ class _VirtualBridge:
         self.hostsDir = os.path.join(self.pObj.tmpDir, "hosts.d")
         self.pidFile = os.path.join(self.pObj.tmpDir, "dnsmasq.pid")
         self.dnsmasqProc = None
-
-    def init2(self, brname, prefix, l2DnsPort, clientAppearFunc, clientChangeFunc, clientDisappearFunc):
-        assert prefix[1] == "255.255.255.0"
-
-        self.brname = brname
-        self.brnetwork = ipaddress.IPv4Network(prefix[0] + "/" + prefix[1])
-
-        self.brip = ipaddress.IPv4Address(prefix[0]) + 1
-        self.dhcpRange = (self.brip + 1, self.brip + 49)
-
-        self.l2DnsPort = l2DnsPort
-        self.clientAppearFunc = clientAppearFunc
-        self.clientChangeFunc = clientChangeFunc
-        self.clientDisappearFunc = clientDisappearFunc
-
-    def dispose(self):
-        pass
 
     def get_name(self):
         return self.brname
