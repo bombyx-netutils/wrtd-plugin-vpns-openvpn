@@ -370,7 +370,7 @@ class _VirtualBridge:
         cmd += "> %s/openvpn.out 2>&1" % (self.pObj.tmpDir)
         self.openvpnProc = subprocess.Popen(cmd, shell=True, universal_newlines=True)
 
-        self.pObj.firewallAllowFunc("tcp dport %d" % (self.pObj.port))
+        self.firewallAllowFunc("tcp dport %d" % (self.pObj.port))
 
     def _stopOpenvpnServer(self):
         if self.openvpnProc is not None:
