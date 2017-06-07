@@ -37,7 +37,6 @@ class _PluginObject:
         self.cfg = cfg
         self.tmpDir = tmpDir
         self.varDir = varDir
-        self.firewallAllowFunc = firewallAllowFunc
         self.logger = logging.getLogger(self.__module__ + "." + self.__class__.__name__ + "." + self.instanceName)
 
         self.proto = self.cfg.get("proto", "udp")
@@ -91,7 +90,7 @@ class _PluginObject:
         assert self.bridge.openvpnProc is not None
         return self.bridge
 
-    def generate_client_script(self, ostype):
+    def generate_client_script(self, ip, ostype):
         # get CA certificate and private key
         caCert, caKey = _Util.loadCertAndKey(self.caCertFile, self.caKeyFile)
 
@@ -103,13 +102,13 @@ class _PluginObject:
         certStr = crypto.dump_certificate(crypto.FILETYPE_PEM, cert).decode("ascii")
         keyStr = crypto.dump_privatekey(crypto.FILETYPE_PEM, k).decode("ascii")
         if ostype == "linux":
-            return self.__createLinuxClientScript(caStr, certStr, keyStr)
+            return self.__createLinuxClientScript(ip, caStr, certStr, keyStr)
         elif ostype == "win32":
-            return self.__createWin32ClientScript(caStr, certStr, keyStr)
+            return self.__createWin32ClientScript(ip, caStr, certStr, keyStr)
         else:
             assert False
 
-    def __createLinuxClientScript(self, caStr, certStr, keyStr):
+    def __createLinuxClientScript(self, ip, caStr, certStr, keyStr):
         selfdir = os.path.dirname(os.path.realpath(__file__))
 
         buf = ""
@@ -117,7 +116,7 @@ class _PluginObject:
             buf = f.read()
 
         buf = buf.replace("@instance@", self.instanceName)
-        buf = buf.replace("@hostname@", "123.56.97.115")            # fixme
+        buf = buf.replace("@hostname@", ip)
         buf = buf.replace("@ca_cert@", caStr)
         buf = buf.replace("@client_cert@", certStr)
         buf = buf.replace("@client_key@", keyStr)
@@ -126,7 +125,7 @@ class _PluginObject:
 
         return ("client-script.sh", buf)
 
-    def __createWin32ClientScript(self, caStr, certStr, keyStr, entryInfoList):
+    def __createWin32ClientScript(self, ip, caStr, certStr, keyStr, entryInfoList):
         assert False        # lack of mantainence
 
         selfdir = os.path.dirname(os.path.realpath(__file__))
@@ -178,7 +177,7 @@ class _PluginObject:
 
 class _VirtualBridge:
 
-    def __init__(self, pObj, prefix, l2DnsPort, clientAppearFunc, clientChangeFunc, clientDisappearFunc):
+    def __init__(self, pObj, prefix, l2DnsPort, clientAppearFunc, clientChangeFunc, clientDisappearFunc, firewallAllowFunc):
         assert prefix[1] == "255.255.255.0"
 
         self.pObj = pObj
@@ -186,6 +185,7 @@ class _VirtualBridge:
         self.clientAppearFunc = clientAppearFunc
         self.clientChangeFunc = clientChangeFunc
         self.clientDisappearFunc = clientDisappearFunc
+        self.firewallAllowFunc = firewallAllowFunc
 
         self.brname = "wrtd-openvpn"
         self.brnetwork = ipaddress.IPv4Network(prefix[0] + "/" + prefix[1])
