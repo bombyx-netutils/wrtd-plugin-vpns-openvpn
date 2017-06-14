@@ -342,8 +342,8 @@ class _VirtualBridge:
             f.write("push \"redirect-gateway\"\n")
             f.write("\n")
 
-            # f.write("push \"dhcp-option DNS 10.8.%d.1\"\n" % (i))
-            # f.write("\n")
+            f.write("push \"dhcp-option DNS %s\"\n" % (self.brip))
+            f.write("\n")
 
             f.write("ca %s\n" % (self.pObj.caCertFile))
             f.write("cert %s\n" % (self.pObj.servCertFile))
