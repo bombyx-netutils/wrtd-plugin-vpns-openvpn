@@ -211,6 +211,8 @@ class _VirtualBridge:
         self.pidFile = os.path.join(self.pObj.tmpDir, "dnsmasq.pid")
         self.dnsmasqProc = None
 
+        self.other_bridge_list = []
+
     def get_name(self):
         return self.brname
 
@@ -231,12 +233,14 @@ class _VirtualBridge:
             i += 50
         return subhostIpRange
 
-    def on_other_bridge_created(self, id):
-        with open(os.path.join(self.hostsDir, id), "w") as f:
+    def on_other_bridge_created(self, bridge):
+        self.other_bridge_list.append(bridge)
+        with open(os.path.join(self.hostsDir, bridge.get_bride_id()), "w") as f:
             f.write("")
 
-    def on_other_bridge_destroyed(self, id):
-        os.unlink(os.path.join(self.hostsDir, id))
+    def on_other_bridge_destroyed(self, bridge):
+        os.unlink(os.path.join(self.hostsDir, bridge.get_bride_id()))
+        self.other_bridge_list.remove(bridge)
 
     def on_subhost_owner_connected(self, id):
         with open(os.path.join(self.hostsDir, id), "w") as f:
@@ -339,6 +343,9 @@ class _VirtualBridge:
             f.write("client-disconnect \"%s/openvpn-script-client.py %s\"\n" % (selfdir, self.pObj.serverFile))
             f.write("\n")
 
+            for bridge in self.other_bridge_list:
+                ip, mask = bridge.get_prefix()
+                f.write("push \"route %s %s\"\n" % (ip, mask))
             f.write("push \"redirect-gateway\"\n")
             f.write("\n")
 
