@@ -37,7 +37,10 @@ class _PluginObject:
         self.cfg = cfg
         self.tmpDir = tmpDir
         self.varDir = varDir
-        self.logger = logging.getLogger(self.__module__ + "." + self.__class__.__name__ + "." + self.instanceName)
+        if self.instanceName == "":
+            self.logger = logging.getLogger(self.__module__ + "." + self.__class__.__name__)
+        else:
+            self.logger = logging.getLogger(self.__module__ + "." + self.__class__.__name__ + "." + self.instanceName)
 
         self.proto = self.cfg.get("proto", "udp")
         self.port = self.cfg.get("port", 1194)
@@ -187,7 +190,10 @@ class _VirtualBridge:
         self.clientDisappearFunc = clientDisappearFunc
         self.firewallAllowFunc = firewallAllowFunc
 
-        self.brname = "wrtd-openvpn"
+        if self.pObj.instanceName == "":
+            self.brname = "wrtd-openvpn"
+        else:
+            self.brname = "wrtd-openvpn-" + self.pObj.instanceName
         self.brnetwork = ipaddress.IPv4Network(prefix[0] + "/" + prefix[1])
 
         self.brip = ipaddress.IPv4Address(prefix[0]) + 1
