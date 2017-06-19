@@ -195,6 +195,8 @@ class _VirtualBridge:
             self.brname = "wrtd-openvpn"
         else:
             self.brname = "wrtd-openvpn-" + self.pObj.instanceName
+            if len(self.brname) >= 16:               # IFNAMESIZ
+                self.brname = self.brname[:15]
         self.brnetwork = ipaddress.IPv4Network(prefix[0] + "/" + prefix[1])
 
         self.brip = ipaddress.IPv4Address(prefix[0]) + 1
