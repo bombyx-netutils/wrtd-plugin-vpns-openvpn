@@ -85,13 +85,11 @@ class _PluginObject:
 
         self.bridge._runDnsmasq()
         self.bridge._runCmdServer()
-        self.logger.info("Started.")
 
     def stop(self):
         self.bridge._stopCmdServer()
         self.bridge._stopDnsmasq()
         self.bridge._stopOpenvpnServer()
-        self.logger.info("Stopped.")
 
     def get_bridge(self):
         assert self.bridge.openvpnProc is not None
