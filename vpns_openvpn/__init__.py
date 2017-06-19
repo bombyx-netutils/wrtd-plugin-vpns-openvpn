@@ -32,7 +32,7 @@ def get_plugin(name):
 
 class _PluginObject:
 
-    def init2(self, instanceName, cfg, tmpDir, varDir, bridgePrefix, l2DnsPort, clientAppearFunc, clientChangeFunc, clientDisappearFunc, firewallAllowFunc):
+    def init2(self, instanceName, cfg, tmpDir, varDir, bridgePrefix, l2DnsPort, clientAppearFunc, clientDisappearFunc, firewallAllowFunc):
         self.instanceName = instanceName
         self.cfg = cfg
         self.tmpDir = tmpDir
@@ -45,7 +45,7 @@ class _PluginObject:
         self.proto = self.cfg.get("proto", "udp")
         self.port = self.cfg.get("port", 1194)
 
-        self.bridge = _VirtualBridge(self, bridgePrefix, l2DnsPort, clientAppearFunc, clientChangeFunc, clientDisappearFunc, firewallAllowFunc)
+        self.bridge = _VirtualBridge(self, bridgePrefix, l2DnsPort, clientAppearFunc, clientDisappearFunc, firewallAllowFunc)
 
         self.clientCertCn = "wrtd-openvpn-client"
         self.keySize = 1024
@@ -180,13 +180,12 @@ class _PluginObject:
 
 class _VirtualBridge:
 
-    def __init__(self, pObj, prefix, l2DnsPort, clientAppearFunc, clientChangeFunc, clientDisappearFunc, firewallAllowFunc):
+    def __init__(self, pObj, prefix, l2DnsPort, clientAppearFunc, clientDisappearFunc, firewallAllowFunc):
         assert prefix[1] == "255.255.255.0"
 
         self.pObj = pObj
         self.l2DnsPort = l2DnsPort
         self.clientAppearFunc = clientAppearFunc
-        self.clientChangeFunc = clientChangeFunc
         self.clientDisappearFunc = clientDisappearFunc
         self.firewallAllowFunc = firewallAllowFunc
 
@@ -216,14 +215,11 @@ class _VirtualBridge:
     def get_name(self):
         return self.brname
 
-    def get_bridge_id(self):
-        return "bridge-%s" % (self.brip)
-
     def get_prefix(self):
         return (str(self.brnetwork.network_address), str(self.brnetwork.netmask))
 
-    def get_netmask(self):
-        return self.brnetwork.netmask
+    def get_bridge_id(self):
+        return "bridge-%s" % (self.brip)
 
     def get_subhost_ip_range(self):
         subhostIpRange = []
@@ -242,25 +238,18 @@ class _VirtualBridge:
         os.unlink(os.path.join(self.hostsDir, bridge.get_bride_id()))
         self.other_bridge_list.remove(bridge)
 
-    def on_subhost_owner_connected(self, id):
-        with open(os.path.join(self.hostsDir, id), "w") as f:
+    def on_source_add(self, source_id):
+        with open(os.path.join(self.hostsDir, source_id), "w") as f:
             f.write("")
 
-    def on_subhost_owner_disconnected(self, id):
-        os.unlink(os.path.join(self.hostsDir, id))
+    def on_source_remove(self, source_id):
+        os.unlink(os.path.join(self.hostsDir, source_id))
 
-    def on_upstream_connected(self, id):
-        with open(os.path.join(self.hostsDir, id), "w") as f:
-            f.write("")
-
-    def on_upstream_disconnected(self, id):
-        os.unlink(os.path.join(self.hostsDir, id))
-
-    def on_host_appear(self, sourceId, ipDataDict):
+    def on_host_add_or_change(self, source_id, ip_data_dict):
         bChanged = False
-        fn = os.path.join(self.hostsDir, sourceId)
+        fn = os.path.join(self.hostsDir, source_id)
         with open(fn, "a") as f:
-            for ip, data in ipDataDict.items():
+            for ip, data in ip_data_dict.items():
                 if "hostname" in data:
                     f.write(ip + " " + data["hostname"] + "\n")
                     bChanged = True
@@ -268,8 +257,8 @@ class _VirtualBridge:
         if bChanged:
             self.dnsmasqProc.send_signal(signal.SIGHUP)
 
-    def on_host_disappear(self, sourceId, ipList):
-        fn = os.path.join(self.hostsDir, sourceId)
+    def on_host_remove(self, source_id, ip_list):
+        fn = os.path.join(self.hostsDir, source_id)
         bChanged = False
 
         lineList = []
@@ -278,7 +267,7 @@ class _VirtualBridge:
 
         lineList2 = []
         for line in lineList:
-            if line.split(" ")[0] not in ipList:
+            if line.split(" ")[0] not in ip_list:
                 lineList2.append(line)
             else:
                 bChanged = True
@@ -289,15 +278,15 @@ class _VirtualBridge:
                     f.write(line + "\n")
             self.dnsmasqProc.send_signal(signal.SIGHUP)
 
-    def on_host_refresh(self, sourceId, ipDataDict):
-        fn = os.path.join(self.hostsDir, sourceId)
+    def on_host_refresh(self, source_id, ip_data_dict):
+        fn = os.path.join(self.hostsDir, source_id)
 
         buf = ""
         with open(fn, "r") as f:
             buf = f.read()
 
         buf2 = ""
-        for ip, data in ipDataDict.items():
+        for ip, data in ip_data_dict.items():
             if "hostname" in data:
                 buf2 += ip + " " + data["hostname"] + "\n"
 

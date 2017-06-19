@@ -14,6 +14,8 @@ g_openvpn_client() {
     local KEY_FILE=${OVPN_DIR}/key.pem
     local AUTH_FILE=${OVPN_DIR}/auth.pw
     local SCRIPT_FILE=${OVPN_DIR}/hostname2username.sh
+    local SCRIPT_FILE_2=${OVPN_DIR}/set-http-proxy.sh
+    local SCRIPT_FILE_3=${OVPN_DIR}/remove-proxy.sh
     local CFG=${OVPN_DIR}/config.ovpn
 
     echo "$CA_CERT" > $CA_CERT_FILE
@@ -55,6 +57,20 @@ g_openvpn_client() {
     echo "# use hostname as username" >> $SCRIPT_FILE
     echo "sed -i \"1s/.*/\$(hostname)/\" $AUTH_FILE" >> $SCRIPT_FILE
     chmod 700 $SCRIPT_FILE
+
+    echo "#!/bin/sh" > $SCRIPT_FILE_2
+    echo "" >> $SCRIPT_FILE_2
+    echo "IP=$1" >> $SCRIPT_FILE_2
+    echo "PORT=$2" >> $SCRIPT_FILE_2
+    echo "" >> $SCRIPT_FILE_2
+    echo ""
+
+
+    chmod 700 $SCRIPT_FILE_2
+
+    echo "#!/bin/sh" > $SCRIPT_FILE_3
+    echo "" >> $SCRIPT_FILE_3
+    chmod 700 $SCRIPT_FILE_3
 
     echo "OpenVPN connection created at ${OVPN_DIR}."
 }
