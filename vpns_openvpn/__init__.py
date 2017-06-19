@@ -46,6 +46,7 @@ class _PluginObject:
         self.port = self.cfg.get("port", 1194)
 
         self.bridge = _VirtualBridge(self, bridgePrefix, l2DnsPort, clientAppearFunc, clientDisappearFunc, firewallAllowFunc)
+        self.other_bridge_list = []
 
         self.clientCertCn = "wrtd-openvpn-client"
         self.keySize = 1024
@@ -56,6 +57,9 @@ class _PluginObject:
         self.servDhFile = os.path.join(self.varDir, "dh.pem")
 
         self.serverFile = os.path.join(self.tmpDir, "cmd.socket")
+
+    def set_other_bridge_list(self, other_bridge_list):
+        self.other_bridge_list = other_bridge_list
 
     def start(self):
         if not os.path.exists(self.caCertFile) or not os.path.exists(self.caKeyFile):
@@ -210,8 +214,6 @@ class _VirtualBridge:
         self.pidFile = os.path.join(self.pObj.tmpDir, "dnsmasq.pid")
         self.dnsmasqProc = None
 
-        self.other_bridge_list = []
-
     def get_name(self):
         return self.brname
 
@@ -228,15 +230,6 @@ class _VirtualBridge:
             subhostIpRange.append((str(self.brip + i), str(self.brip + i + 49)))
             i += 50
         return subhostIpRange
-
-    def on_other_bridge_created(self, bridge):
-        self.other_bridge_list.append(bridge)
-        with open(os.path.join(self.hostsDir, bridge.get_bride_id()), "w") as f:
-            f.write("")
-
-    def on_other_bridge_destroyed(self, bridge):
-        os.unlink(os.path.join(self.hostsDir, bridge.get_bride_id()))
-        self.other_bridge_list.remove(bridge)
 
     def on_source_add(self, source_id):
         with open(os.path.join(self.hostsDir, source_id), "w") as f:
@@ -332,7 +325,7 @@ class _VirtualBridge:
             f.write("client-disconnect \"%s/openvpn-script-client.py %s\"\n" % (selfdir, self.pObj.serverFile))
             f.write("\n")
 
-            for bridge in self.other_bridge_list:
+            for bridge in self.pObj.other_bridge_list:
                 ip, mask = bridge.get_prefix()
                 f.write("push \"route %s %s\"\n" % (ip, mask))
             f.write("push \"redirect-gateway\"\n")
