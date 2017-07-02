@@ -11,7 +11,6 @@ import shutil
 import logging
 import netifaces
 import ipaddress
-import threading
 import subprocess
 from OpenSSL import crypto
 from gi.repository import GLib
@@ -376,19 +375,15 @@ class _VirtualBridge:
     def _runCmdServer(self):
         self.cmdSock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
         self.cmdSock.bind(self.serverFile)
-        self.cmdSock.settimeout(1.0)           # socket.recvfrom() is not interrupted when socket.close() is called in other thread, so we need a timeout. sucks!
-
-        self.cmdServerThread = _CmdServerThread(self)
-        self.cmdServerThread.start()
+        self.cmdSockWatch = GLib.io_add_watch(self.cmdSock, GLib.IO_IN, self.__cmdServerWatch)
 
     def _stopCmdServer(self):
-        if self.cmdServerThread is not None:
+        if self.cmdSockWatch is not None:
+            GLib.source_remove(self.cmdSockWatch)
+            self.cmdSockWatch = None
+        if self.cmdSock is not None:
             self.cmdSock.close()
-            self.cmdServerThread.join()
-            self.cmdServerThread = None
-        else:
-            if self.cmdSock is not None:
-                self.cmdSock.close()
+            self.cmdSock = None
 
     def _runDnsmasq(self):
         # myhostname file
@@ -444,42 +439,32 @@ class _VirtualBridge:
         if os.path.exists(self.myhostnameFile):
             os.unlink(self.myhostnameFile)
 
-
-class _CmdServerThread(threading.Thread):
-
-    def __init__(self, pObj):
-        threading.Thread.__init__(self)
-        self.pObj = pObj
-
-    def run(self):
-        while True:
-            jsonObj = None
-            try:
-                buf = self.pObj.cmdSock.recvfrom(4096).decode("utf-8")
-                jsonObj = json.loads(buf)
-            except socket.timeout:
-                continue
-            except socket.error:
-                break
-
+    def __cmdServerWatch(self, source, cb_condition):
+        try:
+            buf = self.cmdSock.recvfrom(4096).decode("utf-8")
+            jsonObj = json.loads(buf)
             if jsonObj["cmd"] == "add":
                 # add to dnsmasq host file
-                _Util.addToDnsmasqHostFile(self.pObj.selfHostFile, jsonObj["ip"], jsonObj["hostname"])
-                self.pObj.dnsmasqProc.send_signal(signal.SIGHUP)
+                _Util.addToDnsmasqHostFile(self.selfHostFile, jsonObj["ip"], jsonObj["hostname"])
+                self.dnsmasqProc.send_signal(signal.SIGHUP)
                 # notify lan manager
                 data = dict()
                 data[jsonObj["ip"]] = dict()
                 data[jsonObj["ip"]]["hostname"] = jsonObj["hostname"]
-                _Util.idleInvoke(self.pObj.clientAppearFunc, self.pObj.get_bridge_id(), data)
+                self.clientAppearFunc(self.get_bridge_id(), data)
             elif jsonObj["cmd"] == "del":
                 # remove from dnsmasq host file
-                _Util.removeFromDnsmasqHostFile(self.pObj.selfHostFile, jsonObj["ip"])
-                self.pObj.dnsmasqProc.send_signal(signal.SIGHUP)
+                _Util.removeFromDnsmasqHostFile(self.selfHostFile, jsonObj["ip"])
+                self.dnsmasqProc.send_signal(signal.SIGHUP)
                 # notify lan manager
                 data = [jsonObj["ip"]]
-                _Util.idleInvoke(self.pObj.clientDisappearFunc, self.pObj.get_bridge_id(), data)
+                self.clientDisappearFunc(self.get_bridge_id(), data)
             else:
                 assert False
+        except socket.error:
+            self.logger.error("receive error", exc_info=True)       # fixme
+        finally:
+            return True
 
 
 class _Util:
@@ -503,13 +488,6 @@ class _Util:
         with open(filename, "w") as f:
             for line in lineList2:
                 f.write(line + "\n")
-
-    @staticmethod
-    def idleInvoke(func, *args):
-        def _idleCallback(func, *args):
-            func(*args)
-            return False
-        GLib.idle_add(_idleCallback, func, *args)
 
     @staticmethod
     def genCertAndKey(caCert, caKey, cn, keysize):
