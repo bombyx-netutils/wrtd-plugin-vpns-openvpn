@@ -205,7 +205,7 @@ class _VirtualBridge:
 
         self.serverFile = os.path.join(self.pObj.tmpDir, "cmd.socket")
         self.cmdSock = None
-        self.cmdServerThread = None
+        self.cmdSockWatch = None
 
         self.myhostnameFile = os.path.join(self.pObj.tmpDir, "dnsmasq.myhostname")
         self.selfHostFile = os.path.join(self.pObj.tmpDir, "dnsmasq.self")
@@ -461,7 +461,7 @@ class _VirtualBridge:
                 self.clientDisappearFunc(self.get_bridge_id(), data)
             else:
                 assert False
-        except socket.error:
+        except:
             self.logger.error("receive error", exc_info=True)       # fixme
         finally:
             return True
