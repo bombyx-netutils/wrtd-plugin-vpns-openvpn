@@ -291,18 +291,20 @@ class _VirtualBridge:
     def on_host_refresh(self, source_id, ip_data_dict):
         fn = os.path.join(self.hostsDir, source_id)
 
-        buf = ""
+        itemDict = dict()
         with open(fn, "r") as f:
-            buf = f.read()
+            for line in f.read().rstrip("\n").split("\n"):
+                itemDict[line.split(" ")[0]] = line.split(" ")[1]
 
-        buf2 = ""
+        itemDict2 = dict()
         for ip, data in ip_data_dict.items():
             if "hostname" in data:
-                buf2 += ip + " " + data["hostname"] + "\n"
+                itemDict[ip] = data["hostname"]
 
-        if buf != buf2:
+        if itemDict != itemDict2:
             with open(fn, "w") as f:
-                f.write(buf2)
+                for ip, hostname in itemDict2:
+                    f.write(ip + " " + data["hostname"] + "\n")
             self.dnsmasqProc.send_signal(signal.SIGHUP)
 
     def _runOpenvpnServer(self):
