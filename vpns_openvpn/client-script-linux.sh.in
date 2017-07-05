@@ -68,22 +68,22 @@ g_openvpn_client() {
     echo '    exit 1' >> $SCRIPT_FILE_2
     echo 'fi' >> $SCRIPT_FILE_2
     echo '' >> $SCRIPT_FILE_2
-    echo 'if grep -q ^http-proxy config.ovpn ; then' >> $SCRIPT_FILE_2
+    echo "if grep -q ^http-proxy $CFG ; then" >> $SCRIPT_FILE_2
     echo '    echo "Error: Proxy already set."' >> $SCRIPT_FILE_2
     echo '    exit 1' >> $SCRIPT_FILE_2
     echo 'fi' >> $SCRIPT_FILE_2
     echo '' >> $SCRIPT_FILE_2
-    echo 'if ! grep -qv "^proto tcp" config.ovpn ; then' >> $SCRIPT_FILE_2
+    echo "if ! grep -qv \"^proto tcp\" $CFG ; then" >> $SCRIPT_FILE_2
     echo '    echo "Error: Only TCP protocol is supported."' >> $SCRIPT_FILE_2
     echo '    exit 1' >> $SCRIPT_FILE_2
     echo 'fi' >> $SCRIPT_FILE_2
     echo '' >> $SCRIPT_FILE_2
-    echo 'sed -r "s/proto (.*)/proto \1\nhttp-proxy $IP $PORT/" -i config.ovpn' >> $SCRIPT_FILE_2
+    echo "sed -r \"s/proto (.*)/proto \\1\\nhttp-proxy \$IP \$PORT/\" -i $CFG" >> $SCRIPT_FILE_2
     chmod 700 $SCRIPT_FILE_2
 
     echo '#!/bin/sh' > $SCRIPT_FILE_3
     echo '' >> $SCRIPT_FILE_3
-    echo 'sed -r "/^http-proxy .*/d" -i config.ovpn' >> $SCRIPT_FILE_3
+    echo "sed -r \"/^http-proxy .*/d\" -i $CFG" >> $SCRIPT_FILE_3
     chmod 700 $SCRIPT_FILE_3
 
     echo "OpenVPN connection created at ${OVPN_DIR}."
@@ -107,6 +107,8 @@ g_openvpn_networkmanager() {
     local CERT_FILE=$VPN_DIR/cert.pem
     local KEY_FILE=$VPN_DIR/key.pem
     local SCRIPT_FILE=$VPN_DIR/hostname2username.sh
+    local SCRIPT_FILE_2=$VPN_DIR/set-http-proxy.sh
+    local SCRIPT_FILE_3=$VPN_DIR/remove-proxy.sh
 
     echo "$CA_CERT" > $CA_CERT_FILE
     chmod 600 $CA_CERT_FILE
@@ -160,6 +162,47 @@ g_openvpn_networkmanager() {
     echo "# use hostname as username" >> $SCRIPT_FILE
     echo "sed -i \"s/username=.*/username=\$(hostname)/g\" $CONN_FILE" >> $SCRIPT_FILE
     chmod 700 $SCRIPT_FILE
+
+    echo '#!/bin/sh' > $SCRIPT_FILE_2
+    echo '' >> $SCRIPT_FILE_2
+    echo 'IP=$1' >> $SCRIPT_FILE_2
+    echo 'PORT=$2' >> $SCRIPT_FILE_2
+    echo 'USERNAME=$3' >> $SCRIPT_FILE_2
+    echo 'PASSWORD=$4' >> $SCRIPT_FILE_2
+    echo '' >> $SCRIPT_FILE_2
+    echo 'if [[ "$IP" == "" || "$PORT" == "" || ( "$USERNAME" == "" && "$PASSWORD" != "" ) ]] ; then' >> $SCRIPT_FILE_2
+    echo '    echo "Usage: $0 <proxy-ip> <proxy-port> [username [password]]"' >> $SCRIPT_FILE_2
+    echo '    exit 1' >> $SCRIPT_FILE_2
+    echo 'fi' >> $SCRIPT_FILE_2
+    echo '' >> $SCRIPT_FILE_2
+    echo "if grep -q ^proxy-type= $CONN_FILE ; then" >> $SCRIPT_FILE_2
+    echo '    echo "Error: Proxy already set."' >> $SCRIPT_FILE_2
+    echo '    exit 1' >> $SCRIPT_FILE_2
+    echo 'fi' >> $SCRIPT_FILE_2
+    echo '' >> $SCRIPT_FILE_2
+    echo "if ! grep -q \"^proto-tcp=yes\" $CONN_FILE ; then" >> $SCRIPT_FILE_2
+    echo '    echo "Error: Only TCP protocol is supported."' >> $SCRIPT_FILE_2
+    echo '    exit 1' >> $SCRIPT_FILE_2
+    echo 'fi' >> $SCRIPT_FILE_2
+    echo '' >> $SCRIPT_FILE_2
+    echo "sed -r \"s/cert-pass-flags=(.*)/cert-pass-flags=\\1\\nproxy-type=http\\nproxy-server=\$IP\\nproxy-port=\$PORT\\nproxy-retry=yes/\" -i $CONN_FILE" >> $SCRIPT_FILE_2
+    echo 'if [ "$USERNAME" != "" ] ; then' >> $SCRIPT_FILE_2
+    echo "    sed -r \"s/proxy-retry=yes/proxy-retry=yes\nhttp-proxy-username=\$USERNAME/\" -i $CONN_FILE" >> $SCRIPT_FILE_2
+    echo 'fi' >> $SCRIPT_FILE_2
+    echo 'if [ "$PASSWORD" != "" ] ; then' >> $SCRIPT_FILE_2
+    echo "    sed -r \"s/password=none/password=none\\nhttp-proxy-password=\$PASSWORD/\" -i $CONN_FILE" >> $SCRIPT_FILE_2
+    echo 'fi' >> $SCRIPT_FILE_2
+    chmod 700 $SCRIPT_FILE_2
+
+    echo '#!/bin/sh' > $SCRIPT_FILE_3
+    echo '' >> $SCRIPT_FILE_3
+    echo "sed -r \"/^proxy-type=.*/d\" -i $CONN_FILE" >> $SCRIPT_FILE_3
+    echo "sed -r \"/^proxy-server=.*/d\" -i $CONN_FILE" >> $SCRIPT_FILE_3
+    echo "sed -r \"/^proxy-port=.*/d\" -i $CONN_FILE" >> $SCRIPT_FILE_3
+    echo "sed -r \"/^proxy-retry=.*/d\" -i $CONN_FILE" >> $SCRIPT_FILE_3
+    echo "sed -r \"/^http-proxy-username=.*/d\" -i $CONN_FILE" >> $SCRIPT_FILE_3
+    echo "sed -r \"/^http-proxy-password=.*/d\" -i $CONN_FILE" >> $SCRIPT_FILE_3
+    chmod 700 $SCRIPT_FILE_3
 
     echo "NetworkManager openvpn connection created at ${CONN_FILE}."
 }
