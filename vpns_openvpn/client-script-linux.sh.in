@@ -69,7 +69,12 @@ g_openvpn_client() {
     echo 'fi' >> $SCRIPT_FILE_2
     echo '' >> $SCRIPT_FILE_2
     echo 'if grep -q ^http-proxy config.ovpn ; then' >> $SCRIPT_FILE_2
-    echo '    echo "Proxy already set."' >> $SCRIPT_FILE_2
+    echo '    echo "Error: Proxy already set."' >> $SCRIPT_FILE_2
+    echo '    exit 1' >> $SCRIPT_FILE_2
+    echo 'fi' >> $SCRIPT_FILE_2
+    echo '' >> $SCRIPT_FILE_2
+    echo 'if ! grep -qv "^proto tcp" config.ovpn ; then' >> $SCRIPT_FILE_2
+    echo '    echo "Error: Only TCP protocol is supported."' >> $SCRIPT_FILE_2
     echo '    exit 1' >> $SCRIPT_FILE_2
     echo 'fi' >> $SCRIPT_FILE_2
     echo '' >> $SCRIPT_FILE_2
