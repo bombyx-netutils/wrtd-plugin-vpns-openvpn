@@ -442,7 +442,7 @@ class _VirtualBridge:
 
     def __cmdServerWatch(self, source, cb_condition):
         try:
-            buf = self.cmdSock.recvfrom(4096).decode("utf-8")
+            buf = self.cmdSock.recvfrom(4096)[0].decode("utf-8")
             jsonObj = json.loads(buf)
             if jsonObj["cmd"] == "add":
                 # add to dnsmasq host file
@@ -462,7 +462,7 @@ class _VirtualBridge:
                 self.clientDisappearFunc(self.get_bridge_id(), data)
             else:
                 assert False
-        except:
+        except Exception as e:
             self.logger.error("receive error", exc_info=True)       # fixme
         finally:
             return True
