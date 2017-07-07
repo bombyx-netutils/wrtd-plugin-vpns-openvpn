@@ -463,7 +463,7 @@ class _VirtualBridge:
             else:
                 assert False
         except Exception as e:
-            self.logger.error("receive error", exc_info=True)       # fixme
+            self.logger.error("receive error, " + str(e), exc_info=True)       # fixme
         finally:
             return True
 
