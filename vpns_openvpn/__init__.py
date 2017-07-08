@@ -182,13 +182,13 @@ class _PluginObject:
 
 class _VirtualBridge:
 
-    def __init__(self, pObj, prefix, l2DnsPort, clientAppearFunc, clientDisappearFunc, firewallAllowFunc):
+    def __init__(self, pObj, prefix, l2dns_port, clientAddOrChangeFunc, clientRemoveFunc, firewallAllowFunc):
         assert prefix[1] == "255.255.255.0"
 
         self.pObj = pObj
-        self.l2DnsPort = l2DnsPort
-        self.clientAppearFunc = clientAppearFunc
-        self.clientDisappearFunc = clientDisappearFunc
+        self.l2DnsPort = l2dns_port
+        self.clientAddOrChangeFunc = clientAddOrChangeFunc
+        self.clientRemoveFunc = clientRemoveFunc
         self.firewallAllowFunc = firewallAllowFunc
 
         if self.pObj.instanceName == "":
@@ -204,15 +204,16 @@ class _VirtualBridge:
 
         self.openvpnProc = None
 
-        self.serverFile = os.path.join(self.pObj.tmpDir, "cmd.socket")
-        self.cmdSock = None
-        self.cmdSockWatch = None
-
         self.myhostnameFile = os.path.join(self.pObj.tmpDir, "dnsmasq.myhostname")
         self.selfHostFile = os.path.join(self.pObj.tmpDir, "dnsmasq.self")
         self.hostsDir = os.path.join(self.pObj.tmpDir, "hosts.d")
         self.pidFile = os.path.join(self.pObj.tmpDir, "dnsmasq.pid")
         self.dnsmasqProc = None
+
+        self.serverFile = os.path.join(self.pObj.tmpDir, "cmd.socket")
+        self.cmdSock = None
+        self.cmdSockWatch = None
+        self.ipHostDict = None
 
     def get_name(self):
         return self.brname
@@ -377,8 +378,10 @@ class _VirtualBridge:
         self.cmdSock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
         self.cmdSock.bind(self.serverFile)
         self.cmdSockWatch = GLib.io_add_watch(self.cmdSock, GLib.IO_IN, self.__cmdServerWatch)
+        self.ipHostDict = dict()
 
     def _stopCmdServer(self):
+        self.ipHostDict = None
         if self.cmdSockWatch is not None:
             GLib.source_remove(self.cmdSockWatch)
             self.cmdSockWatch = None
@@ -445,25 +448,24 @@ class _VirtualBridge:
             buf = self.cmdSock.recvfrom(4096)[0].decode("utf-8")
             jsonObj = json.loads(buf)
             if jsonObj["cmd"] == "add":
-                # add to dnsmasq host file
                 _Util.addToDnsmasqHostFile(self.selfHostFile, jsonObj["ip"], jsonObj["hostname"])
                 self.dnsmasqProc.send_signal(signal.SIGHUP)
-                # notify lan manager
+                self.ipHostDict[jsonObj["ip"]] = jsonObj["hostname"]
+                self.pObj.logger.info("Client %s(%s) appeared." % (jsonObj["hostname"], jsonObj["ip"]))
                 data = dict()
                 data[jsonObj["ip"]] = dict()
                 data[jsonObj["ip"]]["hostname"] = jsonObj["hostname"]
-                self.clientAppearFunc(self.get_bridge_id(), data)
+                self.clientAddOrChangeFunc(self.get_bridge_id(), data)
             elif jsonObj["cmd"] == "del":
-                # remove from dnsmasq host file
                 _Util.removeFromDnsmasqHostFile(self.selfHostFile, jsonObj["ip"])
                 self.dnsmasqProc.send_signal(signal.SIGHUP)
-                # notify lan manager
                 data = [jsonObj["ip"]]
-                self.clientDisappearFunc(self.get_bridge_id(), data)
+                self.clientRemoveFunc(self.get_bridge_id(), data)
+                self.pObj.logger.info("Client %s(%s) disappeared." % (self.ipHostDict[jsonObj["ip"]], jsonObj["ip"]))
             else:
                 assert False
         except Exception as e:
-            self.logger.error("receive error, " + str(e), exc_info=True)       # fixme
+            self.pObj.logger.error("receive error", exc_info=True)       # fixme
         finally:
             return True
 
