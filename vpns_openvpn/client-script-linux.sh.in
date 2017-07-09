@@ -130,7 +130,7 @@ g_openvpn_networkmanager() {
     echo "" >> $CONN_FILE
     echo "[vpn]" >> $CONN_FILE
     echo "service-type=org.freedesktop.NetworkManager.openvpn" >> $CONN_FILE
-    echo "remote=$hostname" >> $CONN_FILE
+    echo "remote=$HOSTNAME" >> $CONN_FILE
     if [ "$proto" == "tcp" ] ; then
         echo "proto-tcp=yes" >> $CONN_FILE
     fi
