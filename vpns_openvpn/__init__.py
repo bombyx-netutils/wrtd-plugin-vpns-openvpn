@@ -32,7 +32,7 @@ def get_plugin(name):
 
 class _PluginObject:
 
-    def init2(self, instanceName, cfg, tmpDir, varDir, bridgePrefix, l2DnsPort, clientAppearFunc, clientDisappearFunc, firewallAllowFunc):
+    def init2(self, instanceName, cfg, tmpDir, varDir, bridgePrefix, l2DnsPort, clientAddFunc, clientChangeFunc, clientRemoveFunc, firewallAllowFunc):
         self.instanceName = instanceName
         self.cfg = cfg
         self.tmpDir = tmpDir
@@ -45,7 +45,7 @@ class _PluginObject:
         self.proto = self.cfg.get("proto", "udp")
         self.port = self.cfg.get("port", 1194)
 
-        self.bridge = _VirtualBridge(self, bridgePrefix, l2DnsPort, clientAppearFunc, clientDisappearFunc, firewallAllowFunc)
+        self.bridge = _VirtualBridge(self, bridgePrefix, l2DnsPort, clientAddFunc, clientRemoveFunc, firewallAllowFunc)
         self.other_bridge_list = []
 
         self.clientCertCn = "wrtd-openvpn-client"
@@ -182,12 +182,12 @@ class _PluginObject:
 
 class _VirtualBridge:
 
-    def __init__(self, pObj, prefix, l2dns_port, clientAddOrChangeFunc, clientRemoveFunc, firewallAllowFunc):
+    def __init__(self, pObj, prefix, l2dns_port, clientAddFunc, clientRemoveFunc, firewallAllowFunc):
         assert prefix[1] == "255.255.255.0"
 
         self.pObj = pObj
         self.l2DnsPort = l2dns_port
-        self.clientAddOrChangeFunc = clientAddOrChangeFunc
+        self.clientAddFunc = clientAddFunc
         self.clientRemoveFunc = clientRemoveFunc
         self.firewallAllowFunc = firewallAllowFunc
 
@@ -455,7 +455,7 @@ class _VirtualBridge:
                 data = dict()
                 data[jsonObj["ip"]] = dict()
                 data[jsonObj["ip"]]["hostname"] = jsonObj["hostname"]
-                self.clientAddOrChangeFunc(self.get_bridge_id(), data)
+                self.clientAddFunc(self.get_bridge_id(), data)
             elif jsonObj["cmd"] == "del":
                 _Util.removeFromDnsmasqHostFile(self.selfHostFile, jsonObj["ip"])
                 self.dnsmasqProc.send_signal(signal.SIGHUP)
