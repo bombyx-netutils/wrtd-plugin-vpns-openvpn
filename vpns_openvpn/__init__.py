@@ -46,7 +46,6 @@ class _PluginObject:
         self.port = self.cfg.get("port", 1194)
 
         self.bridge = _VirtualBridge(self, bridgePrefix, l2DnsPort, clientAddFunc, clientRemoveFunc, firewallAllowFunc)
-        self.other_bridge_list = []
 
         self.clientCertCn = "wrtd-openvpn-client"
         self.keySize = 1024
@@ -57,9 +56,6 @@ class _PluginObject:
         self.servDhFile = os.path.join(self.varDir, "dh.pem")
 
         self.serverFile = os.path.join(self.tmpDir, "cmd.socket")
-
-    def set_other_bridge_list(self, other_bridge_list):
-        self.other_bridge_list = other_bridge_list
 
     def start(self):
         if not os.path.exists(self.caCertFile) or not os.path.exists(self.caKeyFile):
@@ -329,13 +325,8 @@ class _VirtualBridge:
             f.write("client-disconnect \"%s/openvpn-script-client.py %s\"\n" % (selfdir, self.pObj.serverFile))
             f.write("\n")
 
-            for bridge in self.pObj.other_bridge_list:
-                ip, mask = bridge.get_prefix()
-                f.write("push \"route %s %s\"\n" % (ip, mask))
-            f.write("push \"redirect-gateway\"\n")
-            f.write("\n")
-
             f.write("push \"dhcp-option DNS %s\"\n" % (self.brip))
+            f.write("push \"redirect-gateway\"\n")
             f.write("\n")
 
             f.write("ca %s\n" % (self.pObj.caCertFile))
