@@ -220,14 +220,6 @@ class _VirtualBridge:
     def get_bridge_id(self):
         return "bridge-%s" % (self.brip)
 
-    def get_subhost_ip_range(self):
-        subhostIpRange = []
-        i = 51
-        while i + 49 < 255:
-            subhostIpRange.append((str(self.brip + i), str(self.brip + i + 49)))
-            i += 50
-        return subhostIpRange
-
     def on_source_add(self, source_id):
         with open(os.path.join(self.hostsDir, source_id), "w") as f:
             f.write("")
