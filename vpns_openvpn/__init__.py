@@ -124,6 +124,24 @@ class _PluginObject:
         buf = buf.replace("@proto@", self.proto)
         buf = buf.replace("@port@", str(self.port))
 
+        tdir = os.path.join(self.tmpDir, "repo")
+        try:
+            _Util.gitClone("https://github.com/masterkorp/openvpn-update-resolv-conf", tdir, shallow=True, quiet=True)
+            with open(os.path.join(tdir, "update-resolv-conf.sh"), "r") as f:
+                buf = buf.replace("@update_resolv_conf_sh@", f.read())
+        finally:
+            if os.path.exists(tdir):
+                shutil.rmtree(tdir)
+
+        tdir = os.path.join(self.tmpDir, "repo")
+        try:
+            _Util.gitClone("https://github.com/jonathanio/update-systemd-resolved", tdir, shallow=True, quiet=True)
+            with open(os.path.join(tdir, "update-systemd-resolved"), "r") as f:
+                buf = buf.replace("@update_systemd_resolved_sh@", f.read())
+        finally:
+            if os.path.exists(tdir):
+                shutil.rmtree(tdir)
+
         return ("client-script.sh", buf)
 
     def __createWin32ClientScript(self, ip, caStr, certStr, keyStr, entryInfoList):
@@ -570,3 +588,13 @@ class _Util:
         proc = subprocess.Popen(cmd, shell=True, universal_newlines=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         retcode = proc.wait()
         assert retcode == 0
+
+    @staticmethod
+    def gitClone(url, destDir, shallow=False, quiet=False):
+        cmdList = ["/usr/bin/git", "clone"]
+        if shallow:
+            cmdList.append("--depth")
+            cmdList.append("1")
+        if quiet:
+            cmdList.append("-q")
+        subprocess.check_call(cmdList)
