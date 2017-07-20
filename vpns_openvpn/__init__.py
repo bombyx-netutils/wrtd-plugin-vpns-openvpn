@@ -128,7 +128,8 @@ class _PluginObject:
         try:
             _Util.gitClone("https://github.com/masterkorp/openvpn-update-resolv-conf", tdir, shallow=True, quiet=True)
             with open(os.path.join(tdir, "update-resolv-conf.sh"), "r") as f:
-                buf = buf.replace("@update_resolv_conf_sh@", f.read())
+                fstr = f.read().replace("\\", "\\\\").replace("'", "\\'")
+                buf = buf.replace("@update_resolv_conf_sh@", fstr)
         finally:
             if os.path.exists(tdir):
                 shutil.rmtree(tdir)
@@ -137,7 +138,8 @@ class _PluginObject:
         try:
             _Util.gitClone("https://github.com/jonathanio/update-systemd-resolved", tdir, shallow=True, quiet=True)
             with open(os.path.join(tdir, "update-systemd-resolved"), "r") as f:
-                buf = buf.replace("@update_systemd_resolved_sh@", f.read())
+                fstr = f.read().replace("\\", "\\\\").replace("'", "\\'")
+                buf = buf.replace("@update_systemd_resolved_sh@", fstr)
         finally:
             if os.path.exists(tdir):
                 shutil.rmtree(tdir)
@@ -597,4 +599,6 @@ class _Util:
             cmdList.append("1")
         if quiet:
             cmdList.append("-q")
+        cmdList.append(url)
+        cmdList.append(destDir)
         subprocess.check_call(cmdList)
