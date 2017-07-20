@@ -266,13 +266,13 @@ usage() {
     echo "  $0 <client-program>    options are \"openvpn\", \"networkmanager\" and \"wrtd-wvpn\""
 }
 
-INSTANCE="@instance@"
-HOSTNAME="@hostname@"
-CA_CERT="@ca_cert@"
-CERT="@client_cert@"
-KEY="@client_key@"
-PROTO="@proto@"
-PORT="@port@"
+INSTANCE='@instance@'
+HOSTNAME='@hostname@'
+CA_CERT='@ca_cert@'
+CERT='@client_cert@'
+KEY='@client_key@'
+PROTO='@proto@'
+PORT='@port@'
 UPDATE_RESOLV_CONF_SH_CONTENT='@update_resolv_conf_sh@'
 UPDATE_SYSTEMD_RESOLVED_SH_CONTENT='@update_systemd_resolved_sh@'
 

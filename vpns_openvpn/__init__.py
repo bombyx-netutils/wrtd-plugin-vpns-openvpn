@@ -128,7 +128,7 @@ class _PluginObject:
         try:
             _Util.gitClone("https://github.com/masterkorp/openvpn-update-resolv-conf", tdir, shallow=True, quiet=True)
             with open(os.path.join(tdir, "update-resolv-conf.sh"), "r") as f:
-                fstr = f.read().replace("\\", "\\\\").replace("'", "\\'")
+                fstr = f.read().replace("'", "'\\''")
                 buf = buf.replace("@update_resolv_conf_sh@", fstr)
         finally:
             if os.path.exists(tdir):
@@ -138,7 +138,7 @@ class _PluginObject:
         try:
             _Util.gitClone("https://github.com/jonathanio/update-systemd-resolved", tdir, shallow=True, quiet=True)
             with open(os.path.join(tdir, "update-systemd-resolved"), "r") as f:
-                fstr = f.read().replace("\\", "\\\\").replace("'", "\\'")
+                fstr = f.read().replace("'", "'\\''")
                 buf = buf.replace("@update_systemd_resolved_sh@", fstr)
         finally:
             if os.path.exists(tdir):
