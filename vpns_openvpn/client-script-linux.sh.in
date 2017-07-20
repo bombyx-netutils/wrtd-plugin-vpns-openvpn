@@ -95,7 +95,7 @@ g_openvpn_client() {
     echo 'PORT=$2' >> $SCRIPT_FILE_2
     echo '' >> $SCRIPT_FILE_2
     echo 'if [[ "$IP" == "" || "$PORT" == "" ]] ; then' >> $SCRIPT_FILE_2
-    echo '    echo "Usage: $0 <proxy-ip> <proxy-port>' >> $SCRIPT_FILE_2
+    echo '    echo "Usage: $0 <proxy-ip> <proxy-port>"' >> $SCRIPT_FILE_2
     echo '    exit 1' >> $SCRIPT_FILE_2
     echo 'fi' >> $SCRIPT_FILE_2
     echo '' >> $SCRIPT_FILE_2
