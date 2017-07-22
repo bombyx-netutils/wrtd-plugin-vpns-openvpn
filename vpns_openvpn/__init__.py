@@ -32,7 +32,7 @@ def get_plugin(name):
 
 class _PluginObject:
 
-    def init2(self, instanceName, cfg, tmpDir, varDir, bridgePrefix, l2DnsPort, clientAddFunc, clientChangeFunc, clientRemoveFunc, firewallAllowFunc):
+    def init2(self, instanceName, cfg, tmpDir, varDir, bridgePrefix, l2DnsPort, clientAddFunc, clientChangeFunc, clientRemoveFunc):
         self.instanceName = instanceName
         self.cfg = cfg
         self.tmpDir = tmpDir
@@ -45,7 +45,7 @@ class _PluginObject:
         self.proto = self.cfg.get("proto", "udp")
         self.port = self.cfg.get("port", 1194)
 
-        self.bridge = _VirtualBridge(self, bridgePrefix, l2DnsPort, clientAddFunc, clientRemoveFunc, firewallAllowFunc)
+        self.bridge = _VirtualBridge(self, bridgePrefix, l2DnsPort, clientAddFunc, clientRemoveFunc)
 
         self.clientCertCn = "wrtd-openvpn-client"
         self.keySize = 1024
@@ -90,6 +90,11 @@ class _PluginObject:
     def get_bridge(self):
         assert self.bridge.openvpnProc is not None
         return self.bridge
+
+    def get_traffic_management_firewall_allow_list(self):
+        ret = []
+        ret.append("%s dport %d" % (self.pObj.proto, self.pObj.port))
+        return ret
 
     def generate_client_script(self, ip, ostype):
         # get CA certificate and private key
@@ -198,14 +203,13 @@ class _PluginObject:
 
 class _VirtualBridge:
 
-    def __init__(self, pObj, prefix, l2dns_port, clientAddFunc, clientRemoveFunc, firewallAllowFunc):
+    def __init__(self, pObj, prefix, l2dns_port, clientAddFunc, clientRemoveFunc):
         assert prefix[1] == "255.255.255.0"
 
         self.pObj = pObj
         self.l2DnsPort = l2dns_port
         self.clientAddFunc = clientAddFunc
         self.clientRemoveFunc = clientRemoveFunc
-        self.firewallAllowFunc = firewallAllowFunc
 
         if self.pObj.instanceName == "":
             self.brname = "wrtd-openvpn"
@@ -371,8 +375,6 @@ class _VirtualBridge:
         cmd += "--writepid %s/openvpn.pid " % (self.pObj.tmpDir)
         cmd += "> %s/openvpn.out 2>&1" % (self.pObj.tmpDir)
         self.openvpnProc = subprocess.Popen(cmd, shell=True, universal_newlines=True)
-
-        self.firewallAllowFunc("tcp dport %d" % (self.pObj.port))
 
     def _stopOpenvpnServer(self):
         if self.openvpnProc is not None:
