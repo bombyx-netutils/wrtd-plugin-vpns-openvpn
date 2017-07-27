@@ -91,9 +91,10 @@ class _PluginObject:
         assert self.bridge.openvpnProc is not None
         return self.bridge
 
-    def get_traffic_management_firewall_allow_list(self):
-        ret = []
-        ret.append("%s dport %d" % (self.pObj.proto, self.pObj.port))
+    def get_wan_service(self):
+        ret = dict()
+        ret["firewall_allow_list"] = []
+        ret["firewall_allow_list"].append("%s dport %d" % (self.proto, self.port))
         return ret
 
     def generate_client_script(self, ip, ostype):
